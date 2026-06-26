@@ -1,0 +1,30 @@
+{
+  "schema": "bt-studio.meta/0.1",
+  "treeId": "tree_mqhvsvfm_17_18j74",
+  "treeName": "sample_blackboard_binding_tree",
+  "editorMeta": {
+    "canvasScale": 1,
+    "canvasOffsetX": 0,
+    "canvasOffsetY": 0,
+    "nodeLayouts": [
+      {
+        "nodeId": "node_mqhvsvfm_19_aoa7",
+        "x": 360,
+        "y": 40,
+        "width": 160,
+        "height": 54
+      },
+      {
+        "nodeId": "node_mqhvsvfm_20_4wwce",
+        "x": 200,
+        "y": 200,
+        "width": 160,
+        "height": 54
+      }
+    ],
+    "collapsedNodeIds": [],
+    "editorVersion": "0.1.0"
+  },
+  "comments": {},
+  "exportedAt": "2026-06-17T09:41:31.043Z"
+}

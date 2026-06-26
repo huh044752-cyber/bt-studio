@@ -1,0 +1,22 @@
+{
+  "name": "bt-studio",
+  "version": "0.1.0",
+  "private": true,
+  "description": "独立行为树插件与可视化编辑器 (BT Studio) — FOSim 兼容行为树设计、导出、导入、调试、挂接工具",
+  "type": "module",
+  "scripts": {
+    "build:core": "pnpm --filter @btstudio/bt-core build",
+    "test": "pnpm --filter @btstudio/bt-core test",
+    "test:core": "pnpm --filter @btstudio/bt-core test",
+    "dev": "pnpm --filter @btstudio/desktop dev",
+    "tauri": "pnpm --filter @btstudio/desktop tauri",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "5.7.2"
+  },
+  "packageManager": "pnpm@9.12.0",
+  "engines": {
+    "node": ">=18"
+  }
+}

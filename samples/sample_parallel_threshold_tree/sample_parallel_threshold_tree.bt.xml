@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Root id="1" projectType="行为树" name="sample_parallel_threshold_tree">
+  <Blackboards />
+  <ReferencedBehaviorTrees />
+  <Parallel id="1" name="并行" successThreshold="2" failureThreshold="1">
+    <Action id="2" name="探测" function="探测" />
+    <Action id="3" name="分配" function="分配" />
+  </Parallel>
+</Root>

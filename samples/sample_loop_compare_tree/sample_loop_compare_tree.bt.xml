@@ -1,0 +1,10 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Root id="1" projectType="行为树" name="sample_loop_compare_tree">
+  <Blackboards />
+  <ReferencedBehaviorTrees />
+  <DecoratorLoop id="1" name="循环" count="3">
+    <Condition id="2" name="查询状态" function="QueryState" comparetype="Output">
+      <Output name="STATUS" op="eq" value="1" />
+    </Condition>
+  </DecoratorLoop>
+</Root>

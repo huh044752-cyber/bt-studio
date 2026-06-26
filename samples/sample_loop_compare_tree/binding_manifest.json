@@ -1,0 +1,13 @@
+{
+  "schema": "bt-studio.binding-manifest/0.1",
+  "treeId": "tree_mqhvsvfp_22_2wv8q",
+  "treeName": "sample_loop_compare_tree",
+  "malVersion": "fosim-marg/1",
+  "functions": [
+    {
+      "ref": "QueryState"
+    }
+  ],
+  "variables": [],
+  "exportedAt": "2026-06-17T09:41:31.046Z"
+}

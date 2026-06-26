@@ -1,0 +1,44 @@
+{
+  "schema": "bt-studio.meta/0.1",
+  "treeId": "tree_mqhvsvft_29_1r5j2",
+  "treeName": "sample_parallel_threshold_tree",
+  "editorMeta": {
+    "canvasScale": 1,
+    "canvasOffsetX": 0,
+    "canvasOffsetY": 0,
+    "nodeLayouts": [
+      {
+        "nodeId": "node_mqhvsvft_31_2a8n2",
+        "x": 360,
+        "y": 40,
+        "width": 160,
+        "height": 54
+      },
+      {
+        "nodeId": "node_mqhvsvft_32_8hzx4",
+        "x": 200,
+        "y": 200,
+        "width": 160,
+        "height": 54
+      },
+      {
+        "nodeId": "node_mqhvsvft_34_8vn0a",
+        "x": 200,
+        "y": 200,
+        "width": 160,
+        "height": 54
+      },
+      {
+        "nodeId": "node_mqhvsvfu_36_47h1i",
+        "x": 200,
+        "y": 200,
+        "width": 160,
+        "height": 54
+      }
+    ],
+    "collapsedNodeIds": [],
+    "editorVersion": "0.1.0"
+  },
+  "comments": {},
+  "exportedAt": "2026-06-17T09:41:31.051Z"
+}

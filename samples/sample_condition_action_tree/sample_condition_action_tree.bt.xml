@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Root id="1" projectType="行为树" name="sample_condition_action_tree">
+  <Blackboards />
+  <ReferencedBehaviorTrees />
+  <Selector id="1" name="选择">
+    <Condition id="2" name="允许交战" function="CheckEngage" />
+    <Action id="3" name="进入交战" function="Engage" />
+  </Selector>
+</Root>

@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Root id="1" projectType="行为树" name="sample_minimal_tree">
+  <Blackboards />
+  <ReferencedBehaviorTrees />
+  <Sequence id="1" name="主序列">
+    <Action id="2" name="动作" function="DoThing" />
+  </Sequence>
+</Root>

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "desktop",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@btstudio/desktop", "dev"],
+      "port": 5188,
+      "autoPort": true
+    }
+  ]
+}

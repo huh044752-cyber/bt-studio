@@ -1,0 +1,224 @@
+﻿#pragma once
+#include "FOSim/Engine/fz_engine_type.h"
+/**
+ * \brief 基础数据接口
+ * 提供数据的克隆、获取、设置等基本操作
+ */
+class FZMargBaseData
+{
+public:
+    /**
+     * \brief 克隆数据
+     * 创建数据的深拷贝
+     */
+    virtual FZMargBaseData *clone() = 0;
+    
+    /**
+     * \brief 获取数据大小
+     * 返回存储数据的大小
+     */
+    virtual size_t size() = 0;
+    
+    /**
+     * \brief 获取数据指针
+     * 返回指向实际数据的指针
+     */
+    virtual void *get() = 0;
+    
+    /**
+     * \brief 设置数据
+     * 设置存储的数据
+     * 
+     * \param data 数据指针
+     */
+    virtual void set(void *data) = 0;
+    virtual ~FZMargBaseData(){};
+};
+
+struct FZMargBaseImplPrivate;
+
+/**
+ * \brief MAL中存放数据的最小单元
+ * 提供数据的基本存储和访问功能。
+ * 该对象自身拥有名称与具体数据副本；字符串与自定义数据在析构时由 FZMargBaseImpl 负责释放，
+ * 调用方拿到的 GetValue/GetName 返回值都只是观察视图，不能单独释放。
+ */
+class FOSIMENGINE_API FZMargBaseImpl
+{
+    FZMargBaseImpl();
+
+public:
+    /**
+     * \brief 拷贝构造函数
+     * 深拷贝指定的MargBase
+     */
+    FZMargBaseImpl(const FZMargBaseImpl &_marg_base_impl);
+    
+    /**
+     * \brief 构造函数（自定义数据）
+     */
+    FZMargBaseImpl(const char *_name, FZMargBaseData *_data, FZMARGType _type);
+    
+    /**
+     * \brief 构造函数（布尔类型）
+     */
+    FZMargBaseImpl(const char *_name, FZBOOL _bool);
+    
+    /**
+     * \brief 构造函数（整数类型）
+     */
+    FZMargBaseImpl(const char *_name, FZIntegerType _int);
+    
+    /**
+     * \brief 构造函数（指针类型）
+     */
+    FZMargBaseImpl(const char *_name, void *_pointer);
+    
+    /**
+     * \brief 构造函数（字符串类型）
+     */
+    FZMargBaseImpl(const char *_name, const char *_string, FZMARGType _type);
+    
+    /**
+     * \brief 构造函数（浮点类型）
+     */
+    FZMargBaseImpl(const char *_name, double _float, FZMARGType _type);
+    
+    /**
+     * \brief 构造函数（实体ID类型）
+     */
+    FZMargBaseImpl(const char *_name, FZEntityIDType _id, FZMARGType _type);
+    
+    /**
+     * \brief 构造函数（DMGRC类型）
+     */
+    FZMargBaseImpl(const char *_name, FZDMGRC _dmgrc);
+    ~FZMargBaseImpl();
+
+public:
+    /**
+     * \fn virtual FZMargBaseImpl* FZMargBaseImpl::Clone();
+     *
+     * \brief 深拷贝当前MargBase
+     *
+     * \author 
+     * \date 2020/4/7
+     *
+     * \return 返回新的MargBase
+     */
+
+    /**
+     * \brief 克隆MargBase
+     * 深拷贝当前MargBase创建新实例
+     * 
+     * \return 返回新克隆的MargBase
+     */
+    FZMargBaseImpl *Clone();
+
+public:
+    /**
+     * \brief 获取数据指针
+     * 返回MargBase中存储的数据指针
+     * 
+     * \return 数据指针，需要根据数据类型进行转换
+     */
+    void *GetValue();
+
+    /**
+     * \brief 设置数据值
+     * 注意：传入的指针不会自动释放，数据会被拷贝一份。设置值之前必须先设置类型。
+     * 不能用于设置TrackHandleList。当value类型为用户自定义时，需要填入size。
+     * 空指针输入会被安全忽略，用于兼容历史调用链里“探测后再补值”的场景，避免写空指针崩溃。
+     * 
+     * \param _value 数据指针
+     * \param _size 数据大小（用户自定义类型时需要）
+     */
+    void SetValue(void *_value, size_t _size = 0);
+
+    /**
+     * \brief 获取名称
+     * 返回MargBase中存储的名称字符串
+     * 
+     * \return 名称字符串指针，不会为空
+     */
+    const char *GetName();
+
+    /**
+     * \brief 获取数据类型
+     * 返回MargBase中存储的数据类型枚举
+     * 
+     * \return 数据类型枚举
+     */
+    FZMARGType GetType() const;
+    
+    /**
+     * \brief 设置数据类型
+     * 设置MargBase中存储的数据类型
+     * 
+     * \param _type 数据类型枚举
+     */
+    void SetType(const FZMARGType _type);
+    /**
+     * \fn const size_t FZMargBaseImpl::GetSize();
+     *
+     * \brief 获取MargBase中存储的数据内容的大小
+     *
+     * \author 
+     * \date 2020/4/7
+     *
+     * \return 数据大小
+     */
+
+    size_t GetSize() const;
+
+    /**
+     * \brief 设置数据大小
+     * 设置MargBase中存储的数据内容大小
+     * 
+     * \param _size 数据大小
+     */
+    void SetSize(const size_t &_size);
+
+    /**
+     * \brief 获取容量
+     * 内部使用，获取当前分配的容量大小
+     * 
+     * \return 容量大小
+     */
+    size_t GetCapacity() const;
+    
+    /**
+     * \brief 获取用户自定义数据
+     * 返回用户自定义的数据对象
+     * 
+     * \return 用户自定义数据指针
+     */
+    FZMargBaseData *GetUserDefineData();
+
+    /**
+     * \brief 设置左指针
+     */
+    void SetLPointer(FZMargBaseImpl *_l_pointer);
+    
+    /**
+     * \brief 设置右指针
+     */
+    void SetRPointer(FZMargBaseImpl *_r_pointer);
+
+    /**
+     * \brief 获取前一个指针
+     */
+    FZMargBaseImpl *GetPreviousPointer();
+    
+    /**
+     * \brief 获取下一个指针
+     */
+    FZMargBaseImpl *GetNextPointer();
+
+private:
+    void _copy_on_write();
+
+    FZMargBaseImpl *prev_ = nullptr;
+    FZMargBaseImpl *next_ = nullptr;
+    FZMargBaseImplPrivate *marg_base_data_;
+};

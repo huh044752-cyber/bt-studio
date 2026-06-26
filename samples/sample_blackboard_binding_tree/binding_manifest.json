@@ -1,0 +1,15 @@
+{
+  "schema": "bt-studio.binding-manifest/0.1",
+  "treeId": "tree_mqhvsvfm_17_18j74",
+  "treeName": "sample_blackboard_binding_tree",
+  "malVersion": "fosim-marg/1",
+  "functions": [
+    {
+      "ref": "JamTarget"
+    }
+  ],
+  "variables": [
+    "bb_duration"
+  ],
+  "exportedAt": "2026-06-17T09:41:31.043Z"
+}

@@ -1,0 +1,14 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Root id="1" projectType="行为树" name="sample_blackboard_binding_tree">
+  <Blackboards>
+    <Blackboard linked="true" scope="global" name="全局参数板" id="nd_global">
+      <Variable key="duration" id="bb_duration" type="FZRealType" value="600" />
+    </Blackboard>
+  </Blackboards>
+  <ReferencedBehaviorTrees />
+  <Action id="1" name="干扰" function="JamTarget">
+    <Inputs>
+      <Input name="DURATION_TIME" type="FZRealType" source="blackboard" blackboardKey="nd_global" variableKey="bb_duration" />
+    </Inputs>
+  </Action>
+</Root>

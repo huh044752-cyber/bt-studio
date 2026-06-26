@@ -1,0 +1,26 @@
+[package]
+name = "bt-studio"
+version = "0.1.0"
+description = "BT Studio 桌面宿主 — 文件/工作区/导出/挂接/mock 运行时本地服务层"
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "bt_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+zip = "2"
+walkdir = "2"
+rfd = "0.15"
+
+[features]
+# 默认不开启真实 C++ FOSim 运行时;接入引擎时打开 fosim-runtime。
+default = []
+fosim-runtime = []

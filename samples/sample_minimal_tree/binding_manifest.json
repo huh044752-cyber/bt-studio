@@ -1,0 +1,13 @@
+{
+  "schema": "bt-studio.binding-manifest/0.1",
+  "treeId": "tree_mqhvsvfe_1_3x8qc",
+  "treeName": "sample_minimal_tree",
+  "malVersion": "fosim-marg/1",
+  "functions": [
+    {
+      "ref": "DoThing"
+    }
+  ],
+  "variables": [],
+  "exportedAt": "2026-06-17T09:41:31.037Z"
+}

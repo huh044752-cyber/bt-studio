@@ -1,0 +1,33 @@
+{
+  "source": "F:/FOSim/FOSimEngine modules/extern + core/mal + pugi (verbatim)",
+  "files": [
+    "include/FOSim/Engine/core/mal/fz_mal_impl.h",
+    "include/FOSim/Engine/core/mal/fz_marg_base_impl.h",
+    "include/FOSim/Engine/modules/extern/agent.h",
+    "include/FOSim/Engine/modules/extern/behavior_node_agent.h",
+    "include/FOSim/Engine/modules/extern/bt_blackboard.h",
+    "include/FOSim/Engine/modules/extern/bt_compare_rules.h",
+    "include/FOSim/Engine/modules/extern/bt_context.h",
+    "include/FOSim/Engine/modules/extern/bt_node_def.h",
+    "include/FOSim/Engine/modules/extern/bt_status.h",
+    "include/FOSim/Engine/modules/extern/bt_task.h",
+    "include/FOSim/Engine/modules/extern/bt_tree_def.h",
+    "include/FOSim/Engine/modules/extern/bt_tree_task.h",
+    "include/FOSim/Engine/modules/extern/bt_xml_loader.h",
+    "include/FOSim/Engine/modules/extern/state_machine_agent.h",
+    "include/FOSim/Engine/modules/extern/state_machine_def.h",
+    "include/FOSim/Engine/modules/extern/state_machine_loader.h",
+    "include/FOSim/Engine/modules/extern/state_machine_task.h",
+    "include/pugi/pugixml.hpp",
+    "src/core/mal/fz_mal_impl.cpp",
+    "src/core/mal/fz_marg_base_impl.cpp",
+    "src/modules/extern/agent.cpp",
+    "src/modules/extern/behavior_node_agent.cpp",
+    "src/modules/extern/bt_runtime.cpp",
+    "src/modules/extern/bt_xml_loader.cpp",
+    "src/modules/extern/state_machine_agent.cpp",
+    "src/modules/extern/state_machine_loader.cpp",
+    "src/modules/extern/state_machine_runtime.cpp",
+    "src/pugi/pugixml.cpp"
+  ]
+}

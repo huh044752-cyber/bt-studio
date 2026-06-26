@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.tsbuildinfo
+apps/desktop/src-tauri/target/
+apps/desktop/dist/
+.DS_Store
+*.log
+.vite/
