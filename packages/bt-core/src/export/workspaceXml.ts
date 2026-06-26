@@ -82,7 +82,7 @@ export function serializeWorkspaceXml(ws: WorkspaceXmlInput): string {
     lines.push(head);
     for (const v of bb.variables) {
       lines.push(
-        `      <Variable${attr("key", v.name)}${attr("id", v.variableId)}${attr("type", v.malType ? malToXmlType(v.malType) : "FZStringType")}${attr("value", v.defaultValue)}${attr("displayType", v.displayType)} />`,
+        `      <Variable${attr("key", v.name)}${attr("id", v.variableId)}${attr("type", v.malType ? malToXmlType(v.malType) : "CyberStringType")}${attr("value", v.defaultValue)}${attr("displayType", v.displayType)} />`,
       );
     }
     lines.push("    </Blackboard>");

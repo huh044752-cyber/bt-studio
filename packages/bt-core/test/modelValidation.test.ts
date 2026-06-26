@@ -9,7 +9,7 @@ import {
 
 const CMP = `<?xml version="1.0" encoding="UTF-8"?>
 <Prototypes class="FZAirFighter" type="RuleDecision">
-  <Prototype Name="Engage"><Inputs><param name="TARGET_ID" type="FZIntegerType"/></Inputs></Prototype>
+  <Prototype Name="Engage"><Inputs><param name="TARGET_ID" type="CyberIntegerType"/></Inputs></Prototype>
 </Prototypes>`;
 
 function catalog(): CatalogBundle {

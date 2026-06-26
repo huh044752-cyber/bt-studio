@@ -5,9 +5,9 @@ const COGNITION = `<?xml version="1.0" encoding="UTF-8"?>
 <Prototypes class="FZAirFighter" text="空战决策认知" type="RuleDecision">
   <Prototype Name="Engage" ChName="交战" IntendedCmd="ENGAGE">
     <Inputs>
-      <param name="TARGET_ID" type="FZIntegerType" desc="目标ID"/>
-      <param name="MUNITIONNUM" type="FZIntegerType" desc="弹药数量"/>
-      <param name="TARGET_POSITION" type="FZVectorType" desc="目标位置"/>
+      <param name="TARGET_ID" type="CyberIntegerType" desc="目标ID"/>
+      <param name="MUNITIONNUM" type="CyberIntegerType" desc="弹药数量"/>
+      <param name="TARGET_POSITION" type="CyberVectorType" desc="目标位置"/>
     </Inputs>
   </Prototype>
 </Prototypes>`;
@@ -35,8 +35,8 @@ describe("真实模型 .cmp 解析(R1)", () => {
     expect(engage.ownerClass).toBe("FZAirFighter");
     expect(engage.category).toBe("action");
     expect(engage.params.map((p) => p.name)).toEqual(["TARGET_ID", "MUNITIONNUM", "TARGET_POSITION"]);
-    expect(engage.params[0]!.malType).toBe("FZ_MARGTYPE_INTEGER");
-    expect(engage.params[2]!.malType).toBe("FZ_MARGTYPE_VECTOR");
+    expect(engage.params[0]!.malType).toBe("CYBER_MARGTYPE_INTEGER");
+    expect(engage.params[2]!.malType).toBe("CYBER_MARGTYPE_VECTOR");
   });
 
   it("装备形态:views 控件→FZ 类型,FunctionCategory 决定 action/condition", () => {
@@ -45,9 +45,9 @@ describe("真实模型 .cmp 解析(R1)", () => {
     const jam = r.functions.find((f) => f.name === "JamTarget")!;
     expect(jam.category).toBe("action");
     const dur = jam.params.find((p) => p.name === "DURATION_TIME")!;
-    expect(dur.malType).toBe("FZ_MARGTYPE_REAL");
+    expect(dur.malType).toBe("CYBER_MARGTYPE_REAL");
     const finish = jam.params.find((p) => p.name === "IS_POINT_FINISH")!;
-    expect(finish.malType).toBe("FZ_MARGTYPE_BOOL");
+    expect(finish.malType).toBe("CYBER_MARGTYPE_BOOL");
     const q = r.functions.find((f) => f.name === "QueryJammerState")!;
     expect(q.category).toBe("condition");
   });
@@ -110,9 +110,9 @@ describe("老引擎 .cmp + .mui 配对解析", () => {
     expect(fire.intendedCmd).toBe("FIRE");
     expect(fire.delay).toBe(1);
     expect(fire.params.map((p) => p.name)).toEqual(["time", "min_range", "TargetType", "status"]);
-    expect(fire.params[0]!.malType).toBe("FZ_MARGTYPE_JULIAN");
+    expect(fire.params[0]!.malType).toBe("CYBER_MARGTYPE_JULIAN");
     expect(fire.params[0]!.required).toBe(false); // Optional=true
-    expect(fire.params[1]!.malType).toBe("FZ_MARGTYPE_REAL");
+    expect(fire.params[1]!.malType).toBe("CYBER_MARGTYPE_REAL");
     expect(fire.params[3]!.direction).toBe("output");
     // 空 Inputs 也登记函数(用户要求)
     const fly = r.functions.find((f) => f.name === "Fly_Status")!;

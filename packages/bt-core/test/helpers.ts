@@ -39,7 +39,7 @@ export function makeBlackboard(): Blackboard {
     name: "duration",
     scope: "global",
     displayType: "float",
-    malType: "FZ_MARGTYPE_REAL",
+    malType: "CYBER_MARGTYPE_REAL",
     valueFormat: "literal",
     defaultValue: "600",
   });

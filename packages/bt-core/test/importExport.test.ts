@@ -19,11 +19,11 @@ describe("导入/导出往返(文档 §9 / §16.2)", () => {
       direction: "input",
       binding: {
         name: "DURATION_TIME",
-        type: "FZRealType",
+        type: "CyberRealType",
         source: "blackboard",
         blackboardId: bb.blackboardId,
         variableId: "bb_duration",
-        malType: "FZ_MARGTYPE_REAL",
+        malType: "CYBER_MARGTYPE_REAL",
       },
     });
     const res = exporter.exportAll({ doc: createDocument(bus.getTree()), blackboards: [bb] });

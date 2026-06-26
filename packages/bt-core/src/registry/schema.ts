@@ -2,7 +2,7 @@
  * Node Registry 类型(文档 §6.4.1 / 6.4.2 / 6.4.0.1)。
  */
 import type { BTNodeKind } from "../types/runtime.js";
-import type { FZMARGType } from "../types/mal.js";
+import type { CyberMARGType } from "../types/mal.js";
 
 export type NodeCategory =
   | "Root"
@@ -53,7 +53,7 @@ export interface PropertySchema {
   noSave: boolean;
   /** 创建节点时的字段默认值;AddNode 自动写入,防止拖拽即报校验错误。 */
   default?: string | number | boolean;
-  malType?: FZMARGType;
+  malType?: CyberMARGType;
   dependsOn?: string;
   enumValues?: string[];
 }

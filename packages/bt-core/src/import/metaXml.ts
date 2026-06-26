@@ -55,7 +55,7 @@ export function parseMetaObject(meta: Record<string, unknown>): Partial<CatalogB
       enumId: newEnumId(),
       name,
       displayType: "enum",
-      malType: "FZ_MARGTYPE_NAME",
+      malType: "CYBER_MARGTYPE_NAME",
       items: arr<Record<string, unknown>>(e["enum"] as never).map((it) => ({
         runtimeValue: String(it["@_Value"] ?? it["@_NativeValue"] ?? ""),
         displayName: String(it["@_DisplayName"] ?? it["@_Value"] ?? ""),
@@ -67,12 +67,12 @@ export function parseMetaObject(meta: Record<string, unknown>): Partial<CatalogB
     structs.push({
       structId: newStructId(),
       name,
-      malType: "FZ_MARGTYPE_RECORD",
+      malType: "CYBER_MARGTYPE_RECORD",
       fields: arr<Record<string, unknown>>(s["Member"] as never).map((m) => ({
         fieldId: prefixedId("field"),
         fieldName: String(m["@_Name"] ?? ""),
         displayType: String(m["@_Type"] ?? "string"),
-        malType: "FZ_MARGTYPE_RECORD",
+        malType: "CYBER_MARGTYPE_RECORD",
         required: false,
       })),
     });

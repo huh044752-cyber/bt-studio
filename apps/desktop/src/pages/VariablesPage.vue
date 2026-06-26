@@ -71,7 +71,7 @@ function addVar() {
     name: sanitizeVariableKey("new_var"),
     scope: current.value.scope === "global" ? "global" : "tree",
     displayType: "float",
-    malType: "FZ_MARGTYPE_REAL",
+    malType: "CYBER_MARGTYPE_REAL",
     valueFormat: "literal",
     defaultValue: "0",
   });
@@ -86,7 +86,7 @@ function onTypeChange(varId: string, raw: string) {
     const e = ws.enums.find((x) => x.name === enumName);
     v.displayType = "enum";
     v.enumRef = enumName;
-    v.malType = e?.malType ?? "FZ_MARGTYPE_NAME";
+    v.malType = e?.malType ?? "CYBER_MARGTYPE_NAME";
   } else {
     v.displayType = raw as DisplayType;
     v.enumRef = undefined;

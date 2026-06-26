@@ -1,7 +1,7 @@
 /**
  * 宿主绑定目录 / 工作空间 / 工程包 / 控制台 / 会话类型(文档 §6)。
  */
-import type { DisplayType, FZMARGType, ValueFormat } from "./mal.js";
+import type { DisplayType, CyberMARGType, ValueFormat } from "./mal.js";
 import type { BlackboardScope } from "./runtime.js";
 import type { DesignTree } from "./editor.js";
 
@@ -32,7 +32,7 @@ export interface FunctionParam {
   description?: string;
   direction: ParamDirection;
   displayType: DisplayType;
-  malType?: FZMARGType;
+  malType?: CyberMARGType;
   valueFormat: ValueFormat;
   required: boolean;
   defaultValue?: string;
@@ -88,7 +88,7 @@ export interface Variable {
   name: string;
   scope: "global" | "tree";
   displayType: DisplayType;
-  malType?: FZMARGType;
+  malType?: CyberMARGType;
   valueFormat: ValueFormat;
   defaultValue?: string;
   unit?: string;
@@ -119,7 +119,7 @@ export interface EnumDescriptor {
   enumId: string;
   name: string;
   displayType: "enum";
-  malType: "FZ_MARGTYPE_NAME" | "FZ_MARGTYPE_STRING" | "FZ_MARGTYPE_INTEGER";
+  malType: "CYBER_MARGTYPE_NAME" | "CYBER_MARGTYPE_STRING" | "CYBER_MARGTYPE_INTEGER";
   items: EnumItem[];
 }
 
@@ -127,14 +127,14 @@ export interface StructField {
   fieldId: string;
   fieldName: string;
   displayType: string;
-  malType: FZMARGType;
+  malType: CyberMARGType;
   required: boolean;
 }
 
 export interface StructDescriptor {
   structId: string;
   name: string;
-  malType: "FZ_MARGTYPE_RECORD" | "FZ_MARGTYPE_MAL";
+  malType: "CYBER_MARGTYPE_RECORD" | "CYBER_MARGTYPE_MAL";
   recordId?: string;
   fields: StructField[];
 }
@@ -143,7 +143,7 @@ export interface TypeDescriptor {
   typeId: string;
   name: string;
   displayType: DisplayType;
-  malType: FZMARGType;
+  malType: CyberMARGType;
   description?: string;
 }
 
@@ -158,7 +158,7 @@ export interface ClassDescriptor {
   version?: string;
   /** 来源:model=从真实模型 .cmp 解析(已存在 C++,不重生);user=用户新建(生成完整 C++)。 */
   source?: "model" | "user";
-  /** 引擎基类(对齐 model.list:RuleDecision→FZCognitionImpl、Jammers→FZJammerImpl 等)。 */
+  /** 引擎基类(对齐 model.list:RuleDecision→CyberCognitionImpl、Jammers→CyberJammerImpl 等)。 */
   baseClass?: string;
 }
 
@@ -190,7 +190,7 @@ export interface MemberDescriptor {
   static?: boolean;
   defaultValue?: string;
   displayType?: DisplayType;
-  malType?: FZMARGType;
+  malType?: CyberMARGType;
 }
 
 // --- 模型工作空间(6.12) ---

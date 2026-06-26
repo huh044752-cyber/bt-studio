@@ -108,11 +108,11 @@ function sampleFunctions(): FunctionDescriptor[] {
       category: "action",
       bindingTarget: "FZAirFighter.Engage",
       ownerClass: "FZAirFighter",
-      returnType: "FZDFMPFRC",
+      returnType: "CyberDFMPFRC",
       description: "命令战机进入交战",
       params: [
-        { paramId: "p1", name: "TARGET_NAME", direction: "input", displayType: "string", malType: "FZ_MARGTYPE_STRING", valueFormat: "literal", required: true },
-        { paramId: "p2", name: "RESULT", direction: "output", displayType: "int", malType: "FZ_MARGTYPE_INTEGER", valueFormat: "literal", required: false },
+        { paramId: "p1", name: "TARGET_NAME", direction: "input", displayType: "string", malType: "CYBER_MARGTYPE_STRING", valueFormat: "literal", required: true },
+        { paramId: "p2", name: "RESULT", direction: "output", displayType: "int", malType: "CYBER_MARGTYPE_INTEGER", valueFormat: "literal", required: false },
       ],
     },
     {
@@ -122,9 +122,9 @@ function sampleFunctions(): FunctionDescriptor[] {
       category: "condition",
       bindingTarget: "FZAirFighter.CheckEngage",
       ownerClass: "FZAirFighter",
-      returnType: "FZDFMPFRC",
+      returnType: "CyberDFMPFRC",
       params: [
-        { paramId: "p1", name: "RANGE", direction: "input", displayType: "float", malType: "FZ_MARGTYPE_REAL", valueFormat: "literal", required: true },
+        { paramId: "p1", name: "RANGE", direction: "input", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", required: true },
       ],
     },
     {
@@ -134,28 +134,28 @@ function sampleFunctions(): FunctionDescriptor[] {
       category: "action",
       bindingTarget: "FzComRadioJam.JamTarget",
       ownerClass: "FzComRadioJam",
-      returnType: "FZDFMPFRC",
+      returnType: "CyberDFMPFRC",
       params: [
-        { paramId: "p1", name: "DURATION_TIME", direction: "input", displayType: "float", malType: "FZ_MARGTYPE_REAL", valueFormat: "literal", required: true },
-        { paramId: "p2", name: "JAMMER_STATUS", direction: "output", displayType: "int", malType: "FZ_MARGTYPE_INTEGER", valueFormat: "literal", required: false },
+        { paramId: "p1", name: "DURATION_TIME", direction: "input", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", required: true },
+        { paramId: "p2", name: "JAMMER_STATUS", direction: "output", displayType: "int", malType: "CYBER_MARGTYPE_INTEGER", valueFormat: "literal", required: false },
       ],
     },
-    { functionId: "fn_deploy", name: "Deploy", displayName: "发射诱饵", category: "action", bindingTarget: "FZAirFighter.Deploy", ownerClass: "FZAirFighter", returnType: "FZDFMPFRC", params: [] },
-    { functionId: "fn_check_safe", name: "CheckSafe", displayName: "威胁解除判定", category: "condition", bindingTarget: "FZAirFighter.CheckSafe", ownerClass: "FZAirFighter", returnType: "FZDFMPFRC", params: [] },
-    { functionId: "fn_patrol", name: "Patrol", displayName: "巡逻待命", category: "action", bindingTarget: "FZAirFighter.Patrol", ownerClass: "FZAirFighter", returnType: "FZDFMPFRC", params: [{ paramId: "p1", name: "REGION", direction: "input", displayType: "string", malType: "FZ_MARGTYPE_STRING", valueFormat: "literal", required: true }] },
-    { functionId: "fn_activate", name: "Activate", displayName: "激活雷达", category: "action", bindingTarget: "FZSensor.Activate", ownerClass: "FZSensor", returnType: "FZDFMPFRC", params: [] },
-    { functionId: "fn_align", name: "Align", displayName: "校准对准", category: "action", bindingTarget: "FZSensor.Align", ownerClass: "FZSensor", returnType: "FZDFMPFRC", params: [{ paramId: "p1", name: "AZIMUTH", direction: "input", displayType: "float", malType: "FZ_MARGTYPE_REAL", valueFormat: "literal", required: true }] },
-    { functionId: "fn_scan", name: "Scan", displayName: "开始扫描", category: "action", bindingTarget: "FZSensor.Scan", ownerClass: "FZSensor", returnType: "FZDFMPFRC", params: [{ paramId: "p1", name: "SCAN_RESULT", direction: "output", displayType: "vector", malType: "FZ_MARGTYPE_VECTOR", valueFormat: "literal", required: false }] },
-    { functionId: "fn_retreat", name: "Retreat", displayName: "撤退", category: "action", bindingTarget: "FZAirFighter.Retreat", ownerClass: "FZAirFighter", returnType: "FZDFMPFRC", params: [{ paramId: "p1", name: "RETREAT_POS", direction: "output", displayType: "position", malType: "FZ_MARGTYPE_POSITION", valueFormat: "literal", required: false }] },
-    { functionId: "fn_detect", name: "DetectTarget", displayName: "目标探测", category: "condition", bindingTarget: "FZAirFighter.DetectTarget", ownerClass: "FZAirFighter", returnType: "FZDFMPFRC", params: [{ paramId: "p1", name: "MIN_SIGNAL", direction: "input", displayType: "float", malType: "FZ_MARGTYPE_REAL", valueFormat: "literal", required: true }] },
-    { functionId: "fn_ammo", name: "CheckAmmoLow", displayName: "弹药不足判定", category: "condition", bindingTarget: "FZAirFighter.CheckAmmoLow", ownerClass: "FZAirFighter", returnType: "FZDFMPFRC", params: [{ paramId: "p1", name: "THRESHOLD", direction: "input", displayType: "int", malType: "FZ_MARGTYPE_INTEGER", valueFormat: "literal", required: true }] },
+    { functionId: "fn_deploy", name: "Deploy", displayName: "发射诱饵", category: "action", bindingTarget: "FZAirFighter.Deploy", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", params: [] },
+    { functionId: "fn_check_safe", name: "CheckSafe", displayName: "威胁解除判定", category: "condition", bindingTarget: "FZAirFighter.CheckSafe", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", params: [] },
+    { functionId: "fn_patrol", name: "Patrol", displayName: "巡逻待命", category: "action", bindingTarget: "FZAirFighter.Patrol", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "REGION", direction: "input", displayType: "string", malType: "CYBER_MARGTYPE_STRING", valueFormat: "literal", required: true }] },
+    { functionId: "fn_activate", name: "Activate", displayName: "激活雷达", category: "action", bindingTarget: "FZSensor.Activate", ownerClass: "FZSensor", returnType: "CyberDFMPFRC", params: [] },
+    { functionId: "fn_align", name: "Align", displayName: "校准对准", category: "action", bindingTarget: "FZSensor.Align", ownerClass: "FZSensor", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "AZIMUTH", direction: "input", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", required: true }] },
+    { functionId: "fn_scan", name: "Scan", displayName: "开始扫描", category: "action", bindingTarget: "FZSensor.Scan", ownerClass: "FZSensor", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "SCAN_RESULT", direction: "output", displayType: "vector", malType: "CYBER_MARGTYPE_VECTOR", valueFormat: "literal", required: false }] },
+    { functionId: "fn_retreat", name: "Retreat", displayName: "撤退", category: "action", bindingTarget: "FZAirFighter.Retreat", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "RETREAT_POS", direction: "output", displayType: "position", malType: "CYBER_MARGTYPE_POSITION", valueFormat: "literal", required: false }] },
+    { functionId: "fn_detect", name: "DetectTarget", displayName: "目标探测", category: "condition", bindingTarget: "FZAirFighter.DetectTarget", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "MIN_SIGNAL", direction: "input", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", required: true }] },
+    { functionId: "fn_ammo", name: "CheckAmmoLow", displayName: "弹药不足判定", category: "condition", bindingTarget: "FZAirFighter.CheckAmmoLow", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "THRESHOLD", direction: "input", displayType: "int", malType: "CYBER_MARGTYPE_INTEGER", valueFormat: "literal", required: true }] },
   ];
 }
 
 function sampleVariables(): Variable[] {
   return [
-    { variableId: "bb_scan_azimuth", name: "scan_azimuth", scope: "global", displayType: "float", malType: "FZ_MARGTYPE_REAL", valueFormat: "literal", defaultValue: "45", unit: "deg" },
-    { variableId: "bb_allow_commit", name: "allow_commit", scope: "global", displayType: "bool", malType: "FZ_MARGTYPE_BOOL", valueFormat: "literal", defaultValue: "true" },
-    { variableId: "bb_target_name", name: "target_name", scope: "global", displayType: "string", malType: "FZ_MARGTYPE_STRING", valueFormat: "literal", defaultValue: "红方-目标-1" },
+    { variableId: "bb_scan_azimuth", name: "scan_azimuth", scope: "global", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", defaultValue: "45", unit: "deg" },
+    { variableId: "bb_allow_commit", name: "allow_commit", scope: "global", displayType: "bool", malType: "CYBER_MARGTYPE_BOOL", valueFormat: "literal", defaultValue: "true" },
+    { variableId: "bb_target_name", name: "target_name", scope: "global", displayType: "string", malType: "CYBER_MARGTYPE_STRING", valueFormat: "literal", defaultValue: "红方-目标-1" },
   ];
 }

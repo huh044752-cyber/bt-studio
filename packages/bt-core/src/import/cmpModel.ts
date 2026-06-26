@@ -2,7 +2,7 @@
  * 解析真实 FOSim 模型 .cmp 文件 -> 类 + 方法(函数)目录。
  *
  * 三种 .cmp 形态(均已勘察):
- *  A) 新版认知/RuleDecision:<Prototype Name="Engage"><Inputs><param name="TARGET_ID" type="FZIntegerType" desc=".."/></Inputs></Prototype>
+ *  A) 新版认知/RuleDecision:<Prototype Name="Engage"><Inputs><param name="TARGET_ID" type="CyberIntegerType" desc=".."/></Inputs></Prototype>
  *  B) 新版装备/Equipment:<Prototype Name="JamTarget" FunctionCategory="Action"><Inputs><views>
  *        <param text=".." data_name="DURATION_TIME" type="DoubleSpinBox" default_value="0" select="Unit"/></views></Inputs></Prototype>
  *  C) 老版(F:\0411\ccc\FZFOSimModel,Cyber* 引擎):
@@ -15,66 +15,66 @@
  *     </Prototype>
  *   (多数老版 Cognition .cmp 的 Inputs/Outputs 为空 —— 仍需登记为无参函数。)
  *
- * 输出 className/category/方法/参数(FZ→displayType/malType),供节点 类→方法→组件 绑定与校验。
+ * 输出 className/category/方法/参数(Cyber→displayType/malType),供节点 类→方法→组件 绑定与校验。
  */
 import { XMLParser } from "fast-xml-parser";
 import type { ClassDescriptor, FunctionDescriptor, FunctionParam } from "../types/catalog.js";
 import { categoryToBaseClass } from "../types/catalog.js";
-import type { DisplayType, FZMARGType } from "../types/mal.js";
+import type { DisplayType, CyberMARGType } from "../types/mal.js";
 import { newFunctionId, prefixedId } from "../model/ids.js";
 
 function arr<T>(v: T | T[] | undefined): T[] {
   return v === undefined ? [] : Array.isArray(v) ? v : [v];
 }
 
-/** FZ 运行类型串 -> (displayType, malType)。 */
-function fzToTypes(fz: string): { displayType: DisplayType; malType: FZMARGType } {
-  switch (fz) {
-    case "FZIntegerType": return { displayType: "int", malType: "FZ_MARGTYPE_INTEGER" };
-    case "FZRealType": return { displayType: "float", malType: "FZ_MARGTYPE_REAL" };
-    case "FZBOOL": return { displayType: "bool", malType: "FZ_MARGTYPE_BOOL" };
-    case "FZStringType": return { displayType: "string", malType: "FZ_MARGTYPE_STRING" };
-    case "FZNameType": return { displayType: "name", malType: "FZ_MARGTYPE_NAME" };
-    case "FZVectorType": return { displayType: "vector", malType: "FZ_MARGTYPE_VECTOR" };
-    case "FZPositionType": return { displayType: "position", malType: "FZ_MARGTYPE_POSITION" };
-    case "FZCoordinateType": return { displayType: "coordinate", malType: "FZ_MARGTYPE_COORDINATE" };
-    case "FZOrientationType": return { displayType: "orientation", malType: "FZ_MARGTYPE_ORIENTATION" };
-    case "FZJulianType": return { displayType: "julian", malType: "FZ_MARGTYPE_JULIAN" };
-    default: return { displayType: "string", malType: "FZ_MARGTYPE_STRING" };
+/** Cyber 运行类型串 -> (displayType, malType)。 */
+function cyberToTypes(cyber: string): { displayType: DisplayType; malType: CyberMARGType } {
+  switch (cyber) {
+    case "CyberIntegerType": return { displayType: "int", malType: "CYBER_MARGTYPE_INTEGER" };
+    case "CyberRealType": return { displayType: "float", malType: "CYBER_MARGTYPE_REAL" };
+    case "CyberBOOL": return { displayType: "bool", malType: "CYBER_MARGTYPE_BOOL" };
+    case "CyberStringType": return { displayType: "string", malType: "CYBER_MARGTYPE_STRING" };
+    case "CyberNameType": return { displayType: "name", malType: "CYBER_MARGTYPE_NAME" };
+    case "CyberVectorType": return { displayType: "vector", malType: "CYBER_MARGTYPE_VECTOR" };
+    case "CyberPositionType": return { displayType: "position", malType: "CYBER_MARGTYPE_POSITION" };
+    case "CyberCoordinateType": return { displayType: "coordinate", malType: "CYBER_MARGTYPE_COORDINATE" };
+    case "CyberOrientationType": return { displayType: "orientation", malType: "CYBER_MARGTYPE_ORIENTATION" };
+    case "CyberJulianType": return { displayType: "julian", malType: "CYBER_MARGTYPE_JULIAN" };
+    default: return { displayType: "string", malType: "CYBER_MARGTYPE_STRING" };
   }
 }
 
-/** 装备 UI 控件类型 -> FZ 运行类型串。 */
-function widgetToFz(widget: string): string {
+/** 装备 UI 控件类型 -> Cyber 运行类型串。 */
+function widgetToCyber(widget: string): string {
   switch (widget) {
-    case "DoubleSpinBox": return "FZRealType";
-    case "SpinBox": return "FZIntegerType";
-    case "CheckBox": return "FZBOOL";
-    case "LineEditor": return "FZStringType";
-    case "Coordinate": return "FZCoordinateType";
-    case "ComboBox": return "FZIntegerType";
-    default: return "FZStringType";
+    case "DoubleSpinBox": return "CyberRealType";
+    case "SpinBox": return "CyberIntegerType";
+    case "CheckBox": return "CyberBOOL";
+    case "LineEditor": return "CyberStringType";
+    case "Coordinate": return "CyberCoordinateType";
+    case "ComboBox": return "CyberIntegerType";
+    default: return "CyberStringType";
   }
 }
 
-/** 老引擎短类型(Integer/Real/Boolean/Julian/Name/Coordinate) -> FZ 运行类型串。 */
-function oldEngineToFz(t: string): string {
+/** 老引擎短类型(Integer/Real/Boolean/Julian/Name/Coordinate) -> Cyber 运行类型串。 */
+function oldEngineToCyber(t: string): string {
   switch (t) {
-    case "Integer": return "FZIntegerType";
-    case "Real": return "FZRealType";
-    case "Boolean": case "Bool": return "FZBOOL";
-    case "Julian": return "FZJulianType";
-    case "Name": return "FZNameType";
-    case "String": return "FZStringType";
-    case "Coordinate": return "FZCoordinateType";
-    case "Position": return "FZPositionType";
-    case "Vector": return "FZVectorType";
-    case "Orientation": return "FZOrientationType";
-    case "CyberInteger": case "CyberIntegerType": return "FZIntegerType";
-    case "CyberReal": case "CyberRealType": return "FZRealType";
-    case "CyberBoolean": case "CyberBOOL": return "FZBOOL";
-    case "CyberName": case "CyberNameType": return "FZNameType";
-    case "CyberCoordinate": case "CyberCoordinateType": return "FZCoordinateType";
+    case "Integer": return "CyberIntegerType";
+    case "Real": return "CyberRealType";
+    case "Boolean": case "Bool": return "CyberBOOL";
+    case "Julian": return "CyberJulianType";
+    case "Name": return "CyberNameType";
+    case "String": return "CyberStringType";
+    case "Coordinate": return "CyberCoordinateType";
+    case "Position": return "CyberPositionType";
+    case "Vector": return "CyberVectorType";
+    case "Orientation": return "CyberOrientationType";
+    case "CyberInteger": case "CyberIntegerType": return "CyberIntegerType";
+    case "CyberReal": case "CyberRealType": return "CyberRealType";
+    case "CyberBoolean": case "CyberBOOL": return "CyberBOOL";
+    case "CyberName": case "CyberNameType": return "CyberNameType";
+    case "CyberCoordinate": case "CyberCoordinateType": return "CyberCoordinateType";
     default: return "";
   }
 }
@@ -93,10 +93,10 @@ interface RawParam {
 
 function toParam(raw: RawParam): FunctionParam {
   const name = String(raw["@_name"] ?? raw["@_data_name"] ?? "");
-  const widgetOrFz = String(raw["@_type"] ?? "");
-  // 形态 A 的 type 已是 FZ*;形态 B 的 type 是控件名
-  const fz = widgetOrFz.startsWith("FZ") ? widgetOrFz : widgetToFz(widgetOrFz);
-  const { displayType, malType } = fzToTypes(fz);
+  const widgetOrCyber = String(raw["@_type"] ?? "");
+  // 形态 A 的 type 已是 Cyber*;形态 B 的 type 是控件名
+  const cyber = widgetOrCyber.startsWith("Cyber") ? widgetOrCyber : widgetToCyber(widgetOrCyber);
+  const { displayType, malType } = cyberToTypes(cyber);
   const displayName = raw["@_text"] ? String(raw["@_text"]) : undefined;
   const description = raw["@_desc"] ?? raw["@_note"];
   return {
@@ -110,7 +110,7 @@ function toParam(raw: RawParam): FunctionParam {
     valueFormat: "literal",
     required: raw["@_require"] !== "false",
     defaultValue: raw["@_default_value"] ? String(raw["@_default_value"]) : undefined,
-    originalType: fz,
+    originalType: cyber,
   };
 }
 
@@ -123,8 +123,8 @@ function oldNestedToParam(
   if (!name) return null;
   const dt = ioNode["DataType"] as Record<string, unknown> | undefined;
   const rawType = dt ? String(dt["@_Value"] ?? "") : "";
-  const fz = oldEngineToFz(rawType) || "FZStringType";
-  const { displayType, malType } = fzToTypes(fz);
+  const cyber = oldEngineToCyber(rawType) || "CyberStringType";
+  const { displayType, malType } = cyberToTypes(cyber);
   const optionalNode = ioNode["Optional"] as Record<string, unknown> | undefined;
   const optional = optionalNode && String(optionalNode["@_Value"] ?? "false") === "true";
   const descNode = ioNode["Description"] as Record<string, unknown> | undefined;
@@ -138,7 +138,7 @@ function oldNestedToParam(
     malType,
     valueFormat: "literal",
     required: !optional,
-    originalType: rawType || fz,
+    originalType: rawType || cyber,
   };
 }
 
@@ -240,8 +240,8 @@ export function parseCmp(xml: string, fallbackClassName?: string): CmpParseResul
       category,
       bindingTarget: `${className}.${name}`,
       ownerClass: className,
-      // FOSim 模型决策/条件函数运行时统一返回 FZDFMPFRC(见 *.h / *_register.cpp)
-      returnType: "FZDFMPFRC", // 固定:类方法返回值只能是 FZDFMPFRC
+      // FOSim 模型决策/条件函数运行时统一返回 CyberDFMPFRC(见 *.h / *_register.cpp)
+      returnType: "CyberDFMPFRC", // 固定:类方法返回值只能是 CyberDFMPFRC
       description: desc,
       params,
       version: cmd,

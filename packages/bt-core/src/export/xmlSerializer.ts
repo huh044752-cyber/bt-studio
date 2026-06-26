@@ -15,27 +15,27 @@
  *  - Condition 比较:comparetype="Output" + 子 <Output name op value/>
  */
 import type { BehaviorTreeDef, BTNodeDef, BlackboardDef } from "../types/runtime.js";
-import { fzTypeToOldEngine } from "../types/mal.js";
-import type { FZMARGType } from "../types/mal.js";
+import { cyberTypeToOldEngine } from "../types/mal.js";
+import type { CyberMARGType } from "../types/mal.js";
 
 /**
- * 老引擎类型转换:把节点 Input/Output 上的 type 字段(可能是 FZ_MARGTYPE_* 或已是短字符串)
+ * 老引擎类型转换:把节点 Input/Output 上的 type 字段(可能是 CYBER_MARGTYPE_* 或已是短字符串)
  * 折算成老引擎 bt_runtime.cpp 期望的 Boolean/Integer/Real/Julian/String/Coordinate。
  * 已是短字符串就原样返回;空串返回空(由 attr() 自动忽略)。
  */
 function toOldType(t: string | undefined): string {
   if (!t) return "";
-  if (t.startsWith("FZ_MARGTYPE_") || t === "FZ_USER_DEFINED") {
-    return fzTypeToOldEngine(t as FZMARGType);
+  if (t.startsWith("CYBER_MARGTYPE_") || t === "CYBER_USER_DEFINED") {
+    return cyberTypeToOldEngine(t as CyberMARGType);
   }
-  // 旧版 / 中间形态串
+  // 老引擎短串身份直通
   switch (t) {
-    case "FZIntegerType": case "Int": case "Integer": case "SpinBox": return "Integer";
-    case "FZRealType": case "Real": case "DoubleSpinBox": case "Float": case "float": return "Real";
-    case "FZBOOL": case "Boolean": case "Bool": case "CheckBox": return "Boolean";
-    case "FZJulianType": case "Julian": return "Julian";
-    case "FZStringType": case "FZNameType": case "String": case "Name": case "LineEditor": return "String";
-    case "FZCoordinateType": case "Coordinate": case "Position": return "Coordinate";
+    case "Int": case "Integer": case "SpinBox": return "Integer";
+    case "Real": case "DoubleSpinBox": case "Float": case "float": return "Real";
+    case "Boolean": case "Bool": case "CheckBox": return "Boolean";
+    case "Julian": return "Julian";
+    case "String": case "Name": case "LineEditor": return "String";
+    case "Coordinate": case "Position": return "Coordinate";
     default: return t;
   }
 }

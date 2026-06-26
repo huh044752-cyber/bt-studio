@@ -22,7 +22,7 @@ function sampleCatalog(): CatalogBundle {
     },
     globalBlackboards: [],
     enums: [
-      { enumId: "e1", name: "WeaponState", displayType: "enum", malType: "FZ_MARGTYPE_NAME", items: [{ runtimeValue: "Idle", displayName: "空闲" }, { runtimeValue: "Fire", displayName: "开火" }] },
+      { enumId: "e1", name: "WeaponState", displayType: "enum", malType: "CYBER_MARGTYPE_NAME", items: [{ runtimeValue: "Idle", displayName: "空闲" }, { runtimeValue: "Fire", displayName: "开火" }] },
     ],
     structs: [],
     types: [],

@@ -26,15 +26,34 @@ export interface ProjectGenInput {
 
 function cppMemberType(t: string): string {
   const s = (t || "").toLowerCase();
-  if (s.includes("bool")) return "FZBOOL";
-  if (s.includes("real") || s.includes("float")) return "FZRealType";
-  if (s.includes("int")) return "FZIntegerType";
-  if (s.includes("vector")) return "FZVectorType";
-  if (s.includes("position")) return "FZPositionType";
-  if (s.includes("coordinate")) return "FZCoordinateType";
-  if (s.includes("orientation")) return "FZOrientationType";
+  if (s.includes("bool")) return "CyberBOOL";
+  if (s.includes("real") || s.includes("float")) return "CyberRealType";
+  if (s.includes("int")) return "CyberIntegerType";
+  if (s.includes("vector")) return "CyberVectorType";
+  if (s.includes("position")) return "CyberPositionType";
+  if (s.includes("coordinate")) return "CyberCoordinateType";
+  if (s.includes("orientation")) return "CyberOrientationType";
   if (s.includes("name") || s.includes("string")) return "std::string";
-  return "FZIntegerType";
+  return "CyberIntegerType";
+}
+
+/** 参数运行类型(优先 originalType,否则按 malType 反推 Cyber 串)。 */
+function paramCyber(p: FunctionParam): string {
+  if (p.originalType && (p.originalType.startsWith("Cyber") || p.originalType.startsWith("FZ"))) {
+    // 兼容遗留 FZ* 串
+    return p.originalType.replace(/^FZ/, "Cyber");
+  }
+  const m = (p.malType ?? "").toUpperCase();
+  if (m.includes("BOOL")) return "CyberBOOL";
+  if (m.includes("REAL")) return "CyberRealType";
+  if (m.includes("INTEGER")) return "CyberIntegerType";
+  if (m.includes("VECTOR")) return "CyberVectorType";
+  if (m.includes("POSITION")) return "CyberPositionType";
+  if (m.includes("COORDINATE")) return "CyberCoordinateType";
+  if (m.includes("ORIENTATION")) return "CyberOrientationType";
+  if (m.includes("JULIAN")) return "CyberJulianType";
+  if (m.includes("NAME")) return "CyberNameType";
+  return "CyberStringType";
 }
 
 function baseOf(_catalog: CatalogBundle, _className: string): string {
@@ -42,35 +61,19 @@ function baseOf(_catalog: CatalogBundle, _className: string): string {
   return "FZDecisionAgentBase";
 }
 
-/** 参数运行类型(优先 originalType,否则按 malType 反推 FZ 串)。 */
-function paramFz(p: FunctionParam): string {
-  if (p.originalType && p.originalType.startsWith("FZ")) return p.originalType;
-  const m = (p.malType ?? "").toUpperCase();
-  if (m.includes("BOOL")) return "FZBOOL";
-  if (m.includes("REAL")) return "FZRealType";
-  if (m.includes("INTEGER")) return "FZIntegerType";
-  if (m.includes("VECTOR")) return "FZVectorType";
-  if (m.includes("POSITION")) return "FZPositionType";
-  if (m.includes("COORDINATE")) return "FZCoordinateType";
-  if (m.includes("ORIENTATION")) return "FZOrientationType";
-  if (m.includes("JULIAN")) return "FZJulianType";
-  if (m.includes("NAME")) return "FZNameType";
-  return "FZStringType";
-}
-
-/** 输入参数:从 in_mal 读取的声明语句(对齐引擎 FZMalImpl::Get* API)。 */
+/** 输入参数:从 in_mal 读取的声明语句(对齐引擎 CyberMalImpl::Get* API)。 */
 function readInput(p: FunctionParam): string {
   const n = p.name;
-  switch (paramFz(p)) {
-    case "FZIntegerType": return `    FZIntegerType ${n} = in_mal->GetInteger("${n}");`;
-    case "FZRealType": return `    FZRealType ${n} = in_mal->GetReal("${n}");`;
-    case "FZBOOL": return `    FZBOOL ${n} = in_mal->GetBoolean("${n}");`;
-    case "FZVectorType": return `    FZVectorType ${n} = in_mal->GetVector("${n}");`;
-    case "FZPositionType": return `    FZPositionType ${n} = in_mal->GetPosition("${n}");`;
-    case "FZCoordinateType": return `    FZCoordinateType ${n} = in_mal->GetCoordinate("${n}");`;
-    case "FZOrientationType": return `    FZOrientationType ${n} = in_mal->GetOrientation("${n}");`;
-    case "FZJulianType": return `    FZJulianType ${n} = in_mal->GetJulian("${n}");`;
-    case "FZNameType": return `    char ${n}[256] = {0}; in_mal->GetName("${n}", ${n});`;
+  switch (paramCyber(p)) {
+    case "CyberIntegerType": return `    CyberIntegerType ${n} = in_mal->GetInteger("${n}");`;
+    case "CyberRealType": return `    CyberRealType ${n} = in_mal->GetReal("${n}");`;
+    case "CyberBOOL": return `    CyberBOOL ${n} = in_mal->GetBoolean("${n}");`;
+    case "CyberVectorType": return `    CyberVectorType ${n} = in_mal->GetVector("${n}");`;
+    case "CyberPositionType": return `    CyberPositionType ${n} = in_mal->GetPosition("${n}");`;
+    case "CyberCoordinateType": return `    CyberCoordinateType ${n} = in_mal->GetCoordinate("${n}");`;
+    case "CyberOrientationType": return `    CyberOrientationType ${n} = in_mal->GetOrientation("${n}");`;
+    case "CyberJulianType": return `    CyberJulianType ${n} = in_mal->GetJulian("${n}");`;
+    case "CyberNameType": return `    char ${n}[256] = {0}; in_mal->GetName("${n}", ${n});`;
     default: return `    char* ${n} = nullptr; in_mal->GetString("${n}", ${n});`;
   }
 }
@@ -78,29 +81,29 @@ function readInput(p: FunctionParam): string {
 /** 输出参数:声明默认值 + 末尾写回 out_mal。 */
 function declOutput(p: FunctionParam): string {
   const n = p.name;
-  switch (paramFz(p)) {
-    case "FZIntegerType": return `    FZIntegerType ${n} = 0;`;
-    case "FZRealType": return `    FZRealType ${n} = 0.0;`;
-    case "FZBOOL": return `    FZBOOL ${n} = false;`;
-    case "FZVectorType": return `    FZVectorType ${n};`;
-    case "FZPositionType": return `    FZPositionType ${n};`;
-    case "FZCoordinateType": return `    FZCoordinateType ${n};`;
-    case "FZOrientationType": return `    FZOrientationType ${n};`;
-    case "FZJulianType": return `    FZJulianType ${n} = 0.0;`;
+  switch (paramCyber(p)) {
+    case "CyberIntegerType": return `    CyberIntegerType ${n} = 0;`;
+    case "CyberRealType": return `    CyberRealType ${n} = 0.0;`;
+    case "CyberBOOL": return `    CyberBOOL ${n} = false;`;
+    case "CyberVectorType": return `    CyberVectorType ${n};`;
+    case "CyberPositionType": return `    CyberPositionType ${n};`;
+    case "CyberCoordinateType": return `    CyberCoordinateType ${n};`;
+    case "CyberOrientationType": return `    CyberOrientationType ${n};`;
+    case "CyberJulianType": return `    CyberJulianType ${n} = 0.0;`;
     default: return `    std::string ${n};`;
   }
 }
 function writeOutput(p: FunctionParam): string {
   const n = p.name;
-  switch (paramFz(p)) {
-    case "FZIntegerType": return `    out_mal->AddInteger("${n}", ${n});`;
-    case "FZRealType": return `    out_mal->AddReal("${n}", ${n});`;
-    case "FZBOOL": return `    out_mal->AddBoolean("${n}", ${n});`;
-    case "FZVectorType": return `    out_mal->AddVector("${n}", ${n});`;
-    case "FZPositionType": return `    out_mal->AddPosition("${n}", ${n});`;
-    case "FZCoordinateType": return `    out_mal->AddCoordinate("${n}", ${n});`;
-    case "FZOrientationType": return `    out_mal->AddOrientation("${n}", ${n});`;
-    case "FZJulianType": return `    out_mal->AddJulian("${n}", ${n});`;
+  switch (paramCyber(p)) {
+    case "CyberIntegerType": return `    out_mal->AddInteger("${n}", ${n});`;
+    case "CyberRealType": return `    out_mal->AddReal("${n}", ${n});`;
+    case "CyberBOOL": return `    out_mal->AddBoolean("${n}", ${n});`;
+    case "CyberVectorType": return `    out_mal->AddVector("${n}", ${n});`;
+    case "CyberPositionType": return `    out_mal->AddPosition("${n}", ${n});`;
+    case "CyberCoordinateType": return `    out_mal->AddCoordinate("${n}", ${n});`;
+    case "CyberOrientationType": return `    out_mal->AddOrientation("${n}", ${n});`;
+    case "CyberJulianType": return `    out_mal->AddJulian("${n}", ${n});`;
     default: return `    out_mal->AddName("${n}", ${n}.c_str());`;
   }
 }
@@ -122,54 +125,54 @@ function fzTypesHeader(_catalog: CatalogBundle): string {
 #include <map>
 #include <cstring>
 
-// 决策函数返回值(对齐 FOSim FZDFMPFRC)。
-enum FZDFMPFRC { FZ_DFMPFRC_UNKNOWN = 0, FZ_DFMPFRC_CONTINUOUS = 1, FZ_DFMPFRC_SINGLE = 2, FZ_DFMPFRC_ERROR = 3 };
+// 决策函数返回值(对齐 FOSim CyberDFMPFRC)。
+enum CyberDFMPFRC { FZ_DFMPFRC_UNKNOWN = 0, FZ_DFMPFRC_CONTINUOUS = 1, FZ_DFMPFRC_SINGLE = 2, FZ_DFMPFRC_ERROR = 3 };
 
 // FZ 基础类型别名(对齐引擎命名)。
-typedef long FZIntegerType;
-typedef double FZRealType;
-typedef bool FZBOOL;
-typedef double FZJulianType;
-typedef std::string FZNameType;
-typedef std::vector<double> FZVectorType;
-struct FZPositionType { double x = 0, y = 0, z = 0; };
-struct FZCoordinateType { double longitude = 0, latitude = 0, altitude = 0; };
-struct FZOrientationType { double yaw = 0, pitch = 0, roll = 0; };
+typedef long CyberIntegerType;
+typedef double CyberRealType;
+typedef bool CyberBOOL;
+typedef double CyberJulianType;
+typedef std::string CyberNameType;
+typedef std::vector<double> CyberVectorType;
+struct CyberPositionType { double x = 0, y = 0, z = 0; };
+struct CyberCoordinateType { double longitude = 0, latitude = 0, altitude = 0; };
+struct CyberOrientationType { double yaw = 0, pitch = 0, roll = 0; };
 
 // MAL(方法参数列表):按名读写。Get* 数值/坐标为值返回式(对齐引擎 T Get<Type>(name, FZRC*=nullptr))。
 class FZMalImpl {
 public:
     static FZMalImpl* CreateMAL() { return new FZMalImpl(); }
 
-    FZIntegerType GetInteger(const char* n, void* = nullptr) const { auto it = ints_.find(n); return it == ints_.end() ? 0 : it->second; }
-    FZRealType GetReal(const char* n, void* = nullptr) const { auto it = reals_.find(n); return it == reals_.end() ? 0.0 : it->second; }
-    FZBOOL GetBoolean(const char* n, void* = nullptr) const { auto it = bools_.find(n); return it == bools_.end() ? false : it->second; }
-    FZJulianType GetJulian(const char* n, void* = nullptr) const { return GetReal(n); }
-    FZVectorType GetVector(const char* n, void* = nullptr) const { auto it = vecs_.find(n); return it == vecs_.end() ? FZVectorType{} : it->second; }
-    FZPositionType GetPosition(const char* n, void* = nullptr) const { auto it = poss_.find(n); return it == poss_.end() ? FZPositionType{} : it->second; }
-    FZCoordinateType GetCoordinate(const char* n, void* = nullptr) const { auto it = coords_.find(n); return it == coords_.end() ? FZCoordinateType{} : it->second; }
-    FZOrientationType GetOrientation(const char* n, void* = nullptr) const { auto it = oris_.find(n); return it == oris_.end() ? FZOrientationType{} : it->second; }
+    CyberIntegerType GetInteger(const char* n, void* = nullptr) const { auto it = ints_.find(n); return it == ints_.end() ? 0 : it->second; }
+    CyberRealType GetReal(const char* n, void* = nullptr) const { auto it = reals_.find(n); return it == reals_.end() ? 0.0 : it->second; }
+    CyberBOOL GetBoolean(const char* n, void* = nullptr) const { auto it = bools_.find(n); return it == bools_.end() ? false : it->second; }
+    CyberJulianType GetJulian(const char* n, void* = nullptr) const { return GetReal(n); }
+    CyberVectorType GetVector(const char* n, void* = nullptr) const { auto it = vecs_.find(n); return it == vecs_.end() ? CyberVectorType{} : it->second; }
+    CyberPositionType GetPosition(const char* n, void* = nullptr) const { auto it = poss_.find(n); return it == poss_.end() ? CyberPositionType{} : it->second; }
+    CyberCoordinateType GetCoordinate(const char* n, void* = nullptr) const { auto it = coords_.find(n); return it == coords_.end() ? CyberCoordinateType{} : it->second; }
+    CyberOrientationType GetOrientation(const char* n, void* = nullptr) const { auto it = oris_.find(n); return it == oris_.end() ? CyberOrientationType{} : it->second; }
     void GetName(const char* n, char* out) const { auto it = strs_.find(n); std::strncpy(out, it == strs_.end() ? "" : it->second.c_str(), 255); out[255] = 0; }
     void GetString(const char* n, char*& out) const { auto it = strs_.find(n); buf_ = it == strs_.end() ? "" : it->second; out = const_cast<char*>(buf_.c_str()); }
 
-    void AddInteger(const char* n, FZIntegerType v) { ints_[n] = v; }
-    void AddReal(const char* n, FZRealType v) { reals_[n] = v; }
-    void AddBoolean(const char* n, FZBOOL v) { bools_[n] = v; }
-    void AddJulian(const char* n, FZJulianType v) { reals_[n] = v; }
-    void AddVector(const char* n, const FZVectorType& v) { vecs_[n] = v; }
-    void AddPosition(const char* n, const FZPositionType& v) { poss_[n] = v; }
-    void AddCoordinate(const char* n, const FZCoordinateType& v) { coords_[n] = v; }
-    void AddOrientation(const char* n, const FZOrientationType& v) { oris_[n] = v; }
+    void AddInteger(const char* n, CyberIntegerType v) { ints_[n] = v; }
+    void AddReal(const char* n, CyberRealType v) { reals_[n] = v; }
+    void AddBoolean(const char* n, CyberBOOL v) { bools_[n] = v; }
+    void AddJulian(const char* n, CyberJulianType v) { reals_[n] = v; }
+    void AddVector(const char* n, const CyberVectorType& v) { vecs_[n] = v; }
+    void AddPosition(const char* n, const CyberPositionType& v) { poss_[n] = v; }
+    void AddCoordinate(const char* n, const CyberCoordinateType& v) { coords_[n] = v; }
+    void AddOrientation(const char* n, const CyberOrientationType& v) { oris_[n] = v; }
     void AddName(const char* n, const char* v) { strs_[n] = v ? v : ""; }
     void AddString(const char* n, const char* v) { strs_[n] = v ? v : ""; }
 private:
-    std::map<std::string, FZIntegerType> ints_;
-    std::map<std::string, FZRealType> reals_;
-    std::map<std::string, FZBOOL> bools_;
-    std::map<std::string, FZVectorType> vecs_;
-    std::map<std::string, FZPositionType> poss_;
-    std::map<std::string, FZCoordinateType> coords_;
-    std::map<std::string, FZOrientationType> oris_;
+    std::map<std::string, CyberIntegerType> ints_;
+    std::map<std::string, CyberRealType> reals_;
+    std::map<std::string, CyberBOOL> bools_;
+    std::map<std::string, CyberVectorType> vecs_;
+    std::map<std::string, CyberPositionType> poss_;
+    std::map<std::string, CyberCoordinateType> coords_;
+    std::map<std::string, CyberOrientationType> oris_;
     std::map<std::string, std::string> strs_;
     mutable std::string buf_;
 };
@@ -179,14 +182,14 @@ private:
 // 若改用已定义的单继承基类(如 FZDecisionAgentBase),MSVC 会采用紧凑表示,
 // (ProcessDecisionFunctionPtr)&Derived::Method 触发 C4407 / 截断,导致编译不过。
 class __UnexistingClass;
-typedef FZDFMPFRC (__UnexistingClass::*ProcessDecisionFunctionPtr)(FZMalImpl*, FZMalImpl*);
+typedef CyberDFMPFRC (__UnexistingClass::*ProcessDecisionFunctionPtr)(FZMalImpl*, FZMalImpl*);
 
 // 注册参数(对齐引擎 DecisionFunctionInitialParameter)。
 struct DecisionFunctionInitialParameter {
-    FZRealType delay_time_ = 0.0;
-    FZRealType delay_time_delta_ = 0.0;
-    FZRealType repeat_time_ = 0.0;
-    FZRealType repeat_time_delta_ = 0.0;
+    CyberRealType delay_time_ = 0.0;
+    CyberRealType delay_time_delta_ = 0.0;
+    CyberRealType repeat_time_ = 0.0;
+    CyberRealType repeat_time_delta_ = 0.0;
     FZMalImpl* mal_ = nullptr;
     ProcessDecisionFunctionPtr function_ptr_ = nullptr;
 };
@@ -484,7 +487,7 @@ function userAgentHeader(ns: string, className: string, catalog: CatalogBundle):
   // 接真实引擎时由用户决定真实层级,本生成器不预设。
   const lines: string[] = [];
   lines.push(`// 由 BT Studio 生成 —— 类型实现:Agent 类 ${className}(继承 FZDecisionAgentBase)。`);
-  lines.push(`// 决策方法签名 FZDFMPFRC(FZMalImpl* in_mal, FZMalImpl* out_mal);注册见 .cpp 的 RegisterFunctions。`);
+  lines.push(`// 决策方法签名 CyberDFMPFRC(FZMalImpl* in_mal, FZMalImpl* out_mal);注册见 .cpp 的 RegisterFunctions。`);
   lines.push("#pragma once");
   lines.push('#include "fosim/fz_types.h"');
   lines.push(`#include "${ns}/types.h"`);
@@ -507,10 +510,10 @@ function userAgentHeader(ns: string, className: string, catalog: CatalogBundle):
     }
     lines.push("");
   }
-  lines.push("    // 决策/条件方法(返回 FZDFMPFRC):");
+  lines.push("    // 决策/条件方法(返回 CyberDFMPFRC):");
   for (const fn of methods) {
-    const sig = fn.params.map((p) => `${p.name}:${paramFz(p)}${p.direction === "output" ? "(out)" : ""}`).join(", ");
-    lines.push(`    FZDFMPFRC ${fn.name}(FZMalImpl* in_mal, FZMalImpl* out_mal); // ${sig || "无参数"}`);
+    const sig = fn.params.map((p) => `${p.name}:${paramCyber(p)}${p.direction === "output" ? "(out)" : ""}`).join(", ");
+    lines.push(`    CyberDFMPFRC ${fn.name}(FZMalImpl* in_mal, FZMalImpl* out_mal); // ${sig || "无参数"}`);
   }
   lines.push("");
   lines.push("    ///<<< BEGIN WRITING YOUR CODE CLASS_MEMBERS");
@@ -549,7 +552,7 @@ function userAgentCpp(ns: string, className: string, catalog: CatalogBundle): st
     const inputs = fn.params.filter((p) => p.direction !== "output");
     const outputs = fn.params.filter((p) => p.direction === "output");
     lines.push(`// ${fn.displayName || fn.name}${fn.description ? " —— " + fn.description : ""}`);
-    lines.push(`FZDFMPFRC ${className}::${fn.name}(FZMalImpl* in_mal, FZMalImpl* out_mal)`);
+    lines.push(`CyberDFMPFRC ${className}::${fn.name}(FZMalImpl* in_mal, FZMalImpl* out_mal)`);
     lines.push("{");
     if (inputs.length) {
       lines.push("    // ---- 输入参数(从 in_mal 读取)----");
@@ -705,7 +708,7 @@ function readme(input: ProjectGenInput, ns: string): string {
 - \`types/include/${ns}/types.h\` — 枚举/结构体。
 - \`types/include/${ns}/<Class>.h\` — Agent 类声明(成员 + 决策方法 + RegisterFunctions)。
 - \`types/src/<Class>.cpp\` — **完整方法体**:每个决策方法从 \`in_mal\` 读取输入参数、声明输出参数、
-  \`///<<< BEGIN/END WRITING YOUR CODE\` 保留区供填逻辑、写回 \`out_mal\`、返回 FZDFMPFRC;
+  \`///<<< BEGIN/END WRITING YOUR CODE\` 保留区供填逻辑、写回 \`out_mal\`、返回 CyberDFMPFRC;
   以及 \`RegisterFunctions\` 内 \`RegisterDecisionFunction("CMD","Method", DecisionFunctionInitialParameter{...})\`。
 
 ## 组合
@@ -718,7 +721,7 @@ function readme(input: ProjectGenInput, ns: string): string {
 2. **映射/绑定**(\`bt_runtime\` 的 BindUniqueDecision):运行时用 \`node.function\` 在该 Agent 的挂载模型上
    \`GetDecisionFunctionByName(function)\` 唯一匹配,拿到 \`RegisterDecisionFunction\` 注册的 \`function_ptr_\`。
    —— 所以"行为树节点"映射到"某个类(模型/组件)用 RegisterDecisionFunction 注册的决策方法"。
-3. **调度/执行**:\`(model->*function_ptr_)(&in_mal, &out_mal)\` 返回 FZDFMPFRC;输入参数从 in_mal 读、输出写 out_mal。
+3. **调度/执行**:\`(model->*function_ptr_)(&in_mal, &out_mal)\` 返回 CyberDFMPFRC;输入参数从 in_mal 读、输出写 out_mal。
    —— 这就是"函数怎么绑定/为什么这样实现":函数体即各类的决策方法,经 RegisterFunctions 把"名字→成员函数地址"登记好。
 
 > 接真实引擎时:把引擎 \`modules/extern\` + \`core/mal\` + \`pugi\` 源码拷到 \`engine-core/\` 目录,

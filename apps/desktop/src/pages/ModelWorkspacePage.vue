@@ -24,7 +24,7 @@ function confirmCreate() {
     c.success("import", `新建用户类 ${name}`);
   } else {
     if (ws.enums.find((x) => x.name === name)) { c.warning("import", "枚举名重名"); return; }
-    ws.enums.push({ enumId: newEnumId(), name, displayType: "enum", malType: "FZ_MARGTYPE_NAME", items: [{ runtimeValue: "Item1", displayName: "Item1" }] });
+    ws.enums.push({ enumId: newEnumId(), name, displayType: "enum", malType: "CYBER_MARGTYPE_NAME", items: [{ runtimeValue: "Item1", displayName: "Item1" }] });
     c.success("import", `新建枚举 ${name}`);
   }
   createOpen.value = false;
@@ -38,7 +38,7 @@ function addMethod(className: string) {
     category: "action",
     bindingTarget: `${className}.NewMethod`,
     ownerClass: className,
-    returnType: "FZDFMPFRC",
+    returnType: "CyberDFMPFRC",
     intendedCmd: "NEWMETHOD",
     params: [],
   });
@@ -49,7 +49,7 @@ function addMember(className: string, classId: string) {
     memberId: prefixedId("member"),
     ownerClassId: classId,
     memberName: "newMember",
-    valueType: "FZIntegerType",
+    valueType: "CyberIntegerType",
     accessMode: "readwrite",
     bindingPath: `Self.${className}::newMember`,
     static: false,
@@ -141,9 +141,9 @@ function exportMeta() {
 }
 
 /** 可选 FZ 运行类型(成员/参数)。 */
-const FZ_TYPES = ["FZIntegerType", "FZRealType", "FZBOOL", "FZStringType", "FZNameType", "FZVectorType", "FZPositionType", "FZCoordinateType", "FZOrientationType", "FZJulianType"];
-/** 类方法返回值固定为 FZDFMPFRC(FOSim 引擎模型决策/条件函数统一返回值)。 */
-const FIXED_RETURN = "FZDFMPFRC";
+const CYBER_TYPES = ["CyberIntegerType", "CyberRealType", "CyberBOOL", "CyberStringType", "CyberNameType", "CyberVectorType", "CyberPositionType", "CyberCoordinateType", "CyberOrientationType", "CyberJulianType"];
+/** 类方法返回值固定为 CyberDFMPFRC(FOSim 引擎模型决策/条件函数统一返回值)。 */
+const FIXED_RETURN = "CyberDFMPFRC";
 /** FZ → displayType(给参数补 displayType,便于黑板按类型过滤)。 */
 function fzToDisplay(fz: string): string {
   const s = fz.toLowerCase();
@@ -155,7 +155,7 @@ function fzToDisplay(fz: string): string {
   if (s.includes("coordinate")) return "coordinate";
   return "string";
 }
-/** 类别变化只影响节点过滤,返回值始终 FZDFMPFRC。 */
+/** 类别变化只影响节点过滤,返回值始终 CyberDFMPFRC。 */
 function onMethodCategory(m: { returnType: string }) {
   m.returnType = FIXED_RETURN;
 }
@@ -166,10 +166,10 @@ function addParam(m: { params: unknown[] }) {
     name: "param" + (m.params.length + 1),
     direction: "input",
     displayType: "int",
-    malType: "FZ_MARGTYPE_INTEGER",
+    malType: "CYBER_MARGTYPE_INTEGER",
     valueFormat: "literal",
     required: true,
-    originalType: "FZIntegerType",
+    originalType: "CyberIntegerType",
   });
   ws.bump();
 }
@@ -265,7 +265,7 @@ function collapseAll(v: boolean) {
           </header>
           <div v-if="!collapsed.has(a.cls.classId)" class="card-body">
             <!-- 方法 -->
-            <div class="sub-head"><span class="dot m" />方法(决策/条件函数)<span class="muted-2 sh-hint">返回值统一 FZDFMPFRC</span></div>
+            <div class="sub-head"><span class="dot m" />方法(决策/条件函数)<span class="muted-2 sh-hint">返回值统一 CyberDFMPFRC</span></div>
             <div v-if="a.methods.length === 0" class="muted-2 sub-empty">暂无方法,点「＋方法」。</div>
             <div v-for="m in a.methods" :key="m.functionId" class="method">
               <div class="m-top">
@@ -276,7 +276,7 @@ function collapseAll(v: boolean) {
                   <option value="condition">条件 condition</option>
                   <option value="condition_transform">条件变换</option>
                 </select>
-                <span class="ret-badge" title="类方法返回值固定为 FZDFMPFRC">FZDFMPFRC</span>
+                <span class="ret-badge" title="类方法返回值固定为 CyberDFMPFRC">CyberDFMPFRC</span>
                 <span class="spacer" />
                 <button class="btn tiny" @click="addParam(m)">＋参数</button>
                 <button class="btn tiny danger ic" title="删除方法" @click="removeMethod(m.functionId)">🗑</button>
@@ -288,8 +288,8 @@ function collapseAll(v: boolean) {
               <div v-for="(p, pi) in m.params" :key="p.paramId" class="param-row">
                 <input class="input tiny" style="width:108px" v-model="p.name" placeholder="参数名" />
                 <input class="input tiny" style="width:88px" v-model="p.displayName" placeholder="中文名" />
-                <select class="select tiny" style="width:120px" :value="p.originalType ?? 'FZIntegerType'" @change="onParamType(p, ($event.target as HTMLSelectElement).value)">
-                  <option v-for="t in FZ_TYPES" :key="t" :value="t">{{ t }}</option>
+                <select class="select tiny" style="width:120px" :value="p.originalType ?? 'CyberIntegerType'" @change="onParamType(p, ($event.target as HTMLSelectElement).value)">
+                  <option v-for="t in CYBER_TYPES" :key="t" :value="t">{{ t }}</option>
                 </select>
                 <select class="select tiny" style="width:76px" v-model="p.direction" title="方向" :class="p.direction === 'output' ? 'dir-out' : 'dir-in'">
                   <option value="input">输入</option>
@@ -304,7 +304,7 @@ function collapseAll(v: boolean) {
             <div v-for="m in a.members" :key="m.memberId" class="member-row">
               <input class="input tiny nm" v-model="m.memberName" placeholder="成员名" />
               <select class="select tiny" style="width:130px" v-model="m.valueType">
-                <option v-for="t in FZ_TYPES" :key="t" :value="t">{{ t }}</option>
+                <option v-for="t in CYBER_TYPES" :key="t" :value="t">{{ t }}</option>
               </select>
               <label class="chk"><input type="checkbox" v-model="m.static" /> 全局 static</label>
               <span class="spacer" />

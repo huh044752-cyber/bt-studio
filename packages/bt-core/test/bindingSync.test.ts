@@ -15,10 +15,10 @@ const catalog: FunctionCatalog = {
       category: "action",
       bindingTarget: "FZAirFighter.Engage",
       ownerClass: "FZAirFighter",
-      returnType: "FZDFMPFRC",
+      returnType: "CyberDFMPFRC",
       params: [
-        { paramId: "p1", name: "TARGET_NAME", direction: "input", displayType: "string", malType: "FZ_MARGTYPE_STRING", valueFormat: "literal", required: true },
-        { paramId: "p2", name: "RESULT", direction: "output", displayType: "int", malType: "FZ_MARGTYPE_INTEGER", valueFormat: "literal", required: false },
+        { paramId: "p1", name: "TARGET_NAME", direction: "input", displayType: "string", malType: "CYBER_MARGTYPE_STRING", valueFormat: "literal", required: true },
+        { paramId: "p2", name: "RESULT", direction: "output", displayType: "int", malType: "CYBER_MARGTYPE_INTEGER", valueFormat: "literal", required: false },
       ],
     },
     {
@@ -27,9 +27,9 @@ const catalog: FunctionCatalog = {
       category: "condition",
       bindingTarget: "FZAirFighter.CheckEngage",
       ownerClass: "FZAirFighter",
-      returnType: "FZDFMPFRC",
+      returnType: "CyberDFMPFRC",
       params: [
-        { paramId: "p1", name: "RANGE", direction: "input", displayType: "float", malType: "FZ_MARGTYPE_REAL", valueFormat: "literal", required: true, defaultValue: "5000" },
+        { paramId: "p1", name: "RANGE", direction: "input", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", required: true, defaultValue: "5000" },
       ],
     },
   ],
@@ -58,7 +58,7 @@ describe("bindingSync — 依目录重建节点绑定", () => {
     expect(res!.outputBindings.map((b) => b.name)).toEqual(["RESULT"]);
     // 输入参数必带 type / malType,常量来源。
     expect(res!.inputBindings[0]!.source).toBe("constant");
-    expect(res!.inputBindings[0]!.malType).toBe("FZ_MARGTYPE_STRING");
+    expect(res!.inputBindings[0]!.malType).toBe("CYBER_MARGTYPE_STRING");
   });
 
   it("显式 defaultValue 用作默认输入值", () => {
@@ -70,7 +70,7 @@ describe("bindingSync — 依目录重建节点绑定", () => {
 
   it("保留用户已填的常量值,不被默认值覆盖", () => {
     const node = fnNode({
-      inputBindings: [{ name: "TARGET_NAME", type: "FZStringType", source: "constant", value: "红方-1" }],
+      inputBindings: [{ name: "TARGET_NAME", type: "CyberStringType", source: "constant", value: "红方-1" }],
     });
     const res = reconcileNodeBindings(node, catalog);
     expect(res!.inputBindings[0]!.value).toBe("红方-1");
@@ -78,7 +78,7 @@ describe("bindingSync — 依目录重建节点绑定", () => {
 
   it("保留用户已选的黑板变量绑定", () => {
     const node = fnNode({
-      inputBindings: [{ name: "TARGET_NAME", type: "FZStringType", source: "blackboard", variableId: "bb_target", blackboardId: "bb1" }],
+      inputBindings: [{ name: "TARGET_NAME", type: "CyberStringType", source: "blackboard", variableId: "bb_target", blackboardId: "bb1" }],
     });
     const res = reconcileNodeBindings(node, catalog);
     expect(res!.inputBindings[0]!.source).toBe("blackboard");
@@ -104,14 +104,14 @@ describe("bindingSync — 依目录重建节点绑定", () => {
   it("defaultValueForParam 按 MAL 类型给类型默认值", () => {
     const mk = (malType: string, displayType = "string") =>
       ({ paramId: "x", name: "p", direction: "input", displayType, malType, valueFormat: "literal", required: true }) as never;
-    expect(defaultValueForParam(mk("FZ_MARGTYPE_BOOL", "bool"))).toBe("false");
-    expect(defaultValueForParam(mk("FZ_MARGTYPE_INTEGER", "int"))).toBe("0");
-    expect(defaultValueForParam(mk("FZ_MARGTYPE_REAL", "float"))).toBe("0");
-    expect(defaultValueForParam(mk("FZ_MARGTYPE_STRING", "string"))).toBe("");
-    expect(defaultValueForParam(mk("FZ_MARGTYPE_NAME", "name"))).toBe("");
-    expect(defaultValueForParam(mk("FZ_MARGTYPE_POSITION", "position"))).toBe("0,0,0");
+    expect(defaultValueForParam(mk("CYBER_MARGTYPE_BOOL", "bool"))).toBe("false");
+    expect(defaultValueForParam(mk("CYBER_MARGTYPE_INTEGER", "int"))).toBe("0");
+    expect(defaultValueForParam(mk("CYBER_MARGTYPE_REAL", "float"))).toBe("0");
+    expect(defaultValueForParam(mk("CYBER_MARGTYPE_STRING", "string"))).toBe("");
+    expect(defaultValueForParam(mk("CYBER_MARGTYPE_NAME", "name"))).toBe("");
+    expect(defaultValueForParam(mk("CYBER_MARGTYPE_POSITION", "position"))).toBe("0,0,0");
     // 想定引用类无安全默认 → 空。
-    expect(defaultValueForParam(mk("FZ_MARGTYPE_UNITID", "unitId"))).toBe("");
+    expect(defaultValueForParam(mk("CYBER_MARGTYPE_UNITID", "unitId"))).toBe("");
   });
 
   it("malType 缺失时按 displayType 解析后给默认值", () => {

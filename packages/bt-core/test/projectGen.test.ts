@@ -11,12 +11,12 @@ function catalog(): CatalogBundle {
           category: "action",
           bindingTarget: "MyAgent.DoThing",
           ownerClass: "MyAgent",
-          returnType: "FZDFMPFRC",
+          returnType: "CyberDFMPFRC",
           version: "DOTHING",
           intendedCmd: "DO_THING",
           params: [
-            { paramId: "p", name: "TARGET_ID", direction: "input", displayType: "int", malType: "FZ_MARGTYPE_INTEGER", valueFormat: "literal", required: true, originalType: "FZIntegerType" },
-            { paramId: "p2", name: "RESULT", direction: "output", displayType: "float", malType: "FZ_MARGTYPE_REAL", valueFormat: "literal", required: false, originalType: "FZRealType" },
+            { paramId: "p", name: "TARGET_ID", direction: "input", displayType: "int", malType: "CYBER_MARGTYPE_INTEGER", valueFormat: "literal", required: true, originalType: "CyberIntegerType" },
+            { paramId: "p2", name: "RESULT", direction: "output", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", required: false, originalType: "CyberRealType" },
           ],
         },
       ],
@@ -60,7 +60,7 @@ describe("完整工程生成:依赖库 runtime + 类型实现 types", () => {
     // 类头
     const h = files.find((f) => f.path === "types/include/btproj/MyAgent.h")!.content;
     expect(h).toContain("class MyAgent : public FZDecisionAgentBase");
-    expect(h).toContain("FZDFMPFRC DoThing(FZMalImpl* in_mal, FZMalImpl* out_mal)");
+    expect(h).toContain("CyberDFMPFRC DoThing(FZMalImpl* in_mal, FZMalImpl* out_mal)");
     expect(h).toContain("RegisterFunctions");
 
     // 类实现:注册 + 真实方法体(读 in_mal / 写 out_mal)
@@ -74,7 +74,7 @@ describe("完整工程生成:依赖库 runtime + 类型实现 types", () => {
 
     // 依赖库:MAL 完整 Get/Add API + 注册类型
     const fz = files.find((f) => f.path === "runtime/include/fosim/fz_types.h")!.content;
-    expect(fz).toContain("enum FZDFMPFRC");
+    expect(fz).toContain("enum CyberDFMPFRC");
     expect(fz).toContain("ProcessDecisionFunctionPtr");
     expect(fz).toContain("GetInteger");
     expect(fz).toContain("AddReal");
@@ -142,11 +142,11 @@ describe("完整工程生成:依赖库 runtime + 类型实现 types", () => {
       functionCatalog: { functions: [] },
       globalBlackboards: [], enums: [], structs: [], types: [],
       classes: [{ classId: "c1", className: "A", displayName: "A", category: "user", hostModule: "", source: "user" }],
-      members: [{ memberId: "m", ownerClassId: "c1", memberName: "g", valueType: "FZIntegerType", accessMode: "readwrite", bindingPath: "", static: true }],
+      members: [{ memberId: "m", ownerClassId: "c1", memberName: "g", valueType: "CyberIntegerType", accessMode: "readwrite", bindingPath: "", static: true }],
     };
     const f1 = generateProject({ workspaceName: "p", namespace: "ns", catalog: catWithStatic, behaviors: [] });
     const ah = f1.find((f) => f.path === "types/include/ns/A.h")!;
-    expect(ah.content).toContain("inline static FZIntegerType g");
+    expect(ah.content).toContain("inline static CyberIntegerType g");
 
     // 无用户类 → INTERFACE 库
     const empty: CatalogBundle = { functionCatalog: { functions: [] }, globalBlackboards: [], enums: [], structs: [], types: [], classes: [], members: [] };
@@ -162,7 +162,7 @@ describe("完整工程生成:依赖库 runtime + 类型实现 types", () => {
     const cat: CatalogBundle = {
       functionCatalog: {
         functions: [
-          { functionId: "e1", name: "Engage", category: "action", bindingTarget: "FZAirFighter.Engage", ownerClass: "FZAirFighter", returnType: "FZDFMPFRC", intendedCmd: "ENGAGE", params: [{ paramId: "t", name: "TARGET_ID", direction: "input", displayType: "int", malType: "FZ_MARGTYPE_INTEGER", valueFormat: "literal", required: true, originalType: "FZIntegerType" }] },
+          { functionId: "e1", name: "Engage", category: "action", bindingTarget: "FZAirFighter.Engage", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", intendedCmd: "ENGAGE", params: [{ paramId: "t", name: "TARGET_ID", direction: "input", displayType: "int", malType: "CYBER_MARGTYPE_INTEGER", valueFormat: "literal", required: true, originalType: "CyberIntegerType" }] },
         ],
       },
       globalBlackboards: [], enums: [], structs: [], types: [],

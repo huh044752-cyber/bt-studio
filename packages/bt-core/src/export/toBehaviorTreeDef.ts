@@ -150,7 +150,7 @@ function toBlackboardDef(bb: Blackboard): BlackboardDef {
     variables[v.name] = {
       id: v.variableId,
       key: v.name,
-      type: v.malType ? malToXmlType(v.malType) : "FZStringType",
+      type: v.malType ? malToXmlType(v.malType) : "CyberStringType",
       value: v.defaultValue ?? "",
     };
   }

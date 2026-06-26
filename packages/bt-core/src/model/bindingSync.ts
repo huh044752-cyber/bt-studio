@@ -21,7 +21,7 @@ export function isFunctionNode(nodeType: string): boolean {
 
 /**
  * 入参默认值:显式 defaultValue 优先,否则按 MAL 类型给类型对应默认值
- * (FZ_MARGTYPE_INTEGER→"0"、FZ_MARGTYPE_STRING→""、FZ_MARGTYPE_BOOL→"false" 等)。
+ * (CYBER_MARGTYPE_INTEGER→"0"、CYBER_MARGTYPE_STRING→""、CYBER_MARGTYPE_BOOL→"false" 等)。
  * malType 缺失时先由 displayType 解析出 malType 再取默认,保证「所有输入参数都有类型默认值」。
  */
 export function defaultValueForParam(p: FunctionParam): string {

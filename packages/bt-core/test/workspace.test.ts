@@ -16,7 +16,7 @@ describe("workspace.xml 序列化(全 XML 持久化)", () => {
   it("内联 meta + 全局黑板 + 行为 XML", () => {
     const { tree } = buildMinimalTree();
     const bb = createBlackboard("全局板", "global", { blackboardId: "nd_g" });
-    bb.variables.push({ variableId: "v1", name: "speed", scope: "global", displayType: "float", malType: "FZ_MARGTYPE_REAL", valueFormat: "literal", defaultValue: "10" });
+    bb.variables.push({ variableId: "v1", name: "speed", scope: "global", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", defaultValue: "10" });
     const xml = serializeWorkspaceXml({
       name: "demo_ws",
       trees: [tree],

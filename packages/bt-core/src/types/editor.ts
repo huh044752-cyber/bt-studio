@@ -2,7 +2,7 @@
  * 设计态 / 编辑器 UI 协议类型。这些字段不进入运行 XML,只进入 *.bt.meta.json 或内存视图。
  */
 import type { BTNodeKind, InputBinding, OutputBinding, ModelSelector } from "./runtime.js";
-import type { DisplayType, FZMARGType, ValueFormat } from "./mal.js";
+import type { DisplayType, CyberMARGType, ValueFormat } from "./mal.js";
 
 export type StudioMode = "standalone" | "linked_fosim" | "hybrid";
 
@@ -12,14 +12,14 @@ export type ProjectKind = "behavior_tree" | "state_machine";
 /** 设计态输入绑定草稿(比运行态多 displayType/malType/valueFormat 追踪)。 */
 export interface InputBindingDraft {
   name: string;
-  /** 运行态 type 字符串(FZStringType 等),由 malType 推导 */
+  /** 运行态 type 字符串(CyberStringType 等),由 malType 推导 */
   type: string;
   source: "constant" | "blackboard";
   value?: string;
   blackboardId?: string;
   variableId?: string;
   displayType?: DisplayType;
-  malType?: FZMARGType;
+  malType?: CyberMARGType;
   valueFormat?: ValueFormat;
 }
 
@@ -28,7 +28,7 @@ export interface OutputBindingDraft {
   blackboardId: string;
   variableId: string;
   displayType?: DisplayType;
-  malType?: FZMARGType;
+  malType?: CyberMARGType;
 }
 
 export interface TargetSelectorDraft extends Partial<ModelSelector> {}
