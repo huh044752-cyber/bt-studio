@@ -42,7 +42,12 @@ async function scanModel() {
   const res = await readModelCmpFiles(ws.modelRoot);
   if (!res) return;
   if (res.contents.length === 0) { c.warning("import", `目录无 .cmp:${res.root}`); return; }
-  ws.parseModelDir(res.root, res.contents);
+  // 老引擎分支:优先配对解析 .cmp + .mui(.mui 提供类元数据;.cmp 提供函数签名)
+  if (res.muiFiles && res.muiFiles.length > 0) {
+    ws.parseModelDirPaired(res.root, res.files, res.muiFiles);
+  } else {
+    ws.parseModelDir(res.root, res.contents);
+  }
   selected.value = new Set();
 }
 function toggle(name: string) {

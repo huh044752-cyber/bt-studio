@@ -60,17 +60,32 @@ export async function writeArtifact(
  * 选择模型目录并读取所有 *.cmp 内容。
  * Tauri:invoke scan_model_cmp(root);浏览器:webkitdirectory 选目录读取。
  */
+export interface ScannedModelFile { path: string; content: string }
+export interface ScannedModelDir {
+  root: string;
+  contents: string[]; // 老调用方:.cmp 内容数组
+  files: ScannedModelFile[]; // .cmp 文件(路径+内容,供按 baseName 配对)
+  muiFiles: ScannedModelFile[]; // 老版 .mui 文件
+}
+
 export async function readModelCmpFiles(
   root?: string,
-): Promise<{ root: string; contents: string[] } | null> {
+): Promise<ScannedModelDir | null> {
   if (root) {
-    const res = await invokeOpt<{ root: string; files: { path: string; content: string }[]; missing: boolean }>(
-      "scan_model_cmp",
-      { root },
-    );
+    const res = await invokeOpt<{
+      root: string;
+      files: { path: string; content: string }[];
+      mui_files?: { path: string; content: string }[];
+      missing: boolean;
+    }>("scan_model_cmp", { root });
     if (res.ok) {
-      if (res.data.missing) return { root, contents: [] };
-      return { root: res.data.root, contents: res.data.files.map((f) => f.content) };
+      if (res.data.missing) return { root, contents: [], files: [], muiFiles: [] };
+      return {
+        root: res.data.root,
+        contents: res.data.files.map((f) => f.content),
+        files: res.data.files,
+        muiFiles: res.data.mui_files ?? [],
+      };
     }
   }
   // 浏览器降级:目录选择器(从 webkitRelativePath 取真实顶层文件夹名)
@@ -85,8 +100,21 @@ export async function readModelCmpFiles(
       const rel = (all[0] as unknown as { webkitRelativePath?: string }).webkitRelativePath ?? "";
       const folder = rel ? rel.split("/")[0]! : "选择的目录";
       const cmps = all.filter((f) => f.name.endsWith(".cmp"));
-      const contents = await Promise.all(cmps.map((f) => f.text()));
-      resolve({ root: folder, contents });
+      const muis = all.filter((f) => f.name.endsWith(".mui"));
+      const cmpData = await Promise.all(cmps.map(async (f) => ({
+        path: (f as unknown as { webkitRelativePath?: string }).webkitRelativePath ?? f.name,
+        content: await f.text(),
+      })));
+      const muiData = await Promise.all(muis.map(async (f) => ({
+        path: (f as unknown as { webkitRelativePath?: string }).webkitRelativePath ?? f.name,
+        content: await f.text(),
+      })));
+      resolve({
+        root: folder,
+        contents: cmpData.map((c) => c.content),
+        files: cmpData,
+        muiFiles: muiData,
+      });
     };
     input.click();
   });

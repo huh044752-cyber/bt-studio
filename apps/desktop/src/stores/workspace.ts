@@ -15,6 +15,7 @@ import {
   parseMetaXml,
   parseWorkspaceXml,
   parseCmpFiles,
+  parseCmpMuiPairs,
   generateCpp,
   generateProject,
   toBehaviorTreeDef,
@@ -47,7 +48,8 @@ export const useWorkspaceStore = defineStore("workspace", () => {
 
   const mode = ref<StudioMode>("standalone");
   const workspaceName = ref("bt-studio-workspace");
-  const modelRoot = ref<string>("");
+  // 老引擎分支:默认指向老模型目录(F:/0411/ccc/FZFOSimModel),用户可在配置里改写。
+  const modelRoot = ref<string>("F:/0411/ccc/FZFOSimModel");
   // 工作空间配置(对齐 behaviac workspace.xml:导出代码目录/语言 + FOSim 命名空间)
   // 浏览器模式因 File System Access API 沙箱限制无法拿到绝对路径,
   // 选目录后此字段写 "browser::<folder-name>" 标记,避免冒充路径误导用户;
@@ -351,6 +353,47 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     return { classes: cls.length, functions: functions.length };
   }
 
+  /**
+   * 老版分支:.cmp + .mui 配对解析(按 baseName 匹配)。
+   * - cmpFiles / muiFiles 由 Tauri scan_model_cmp 返回(含 path)
+   * - 同名 baseName 的 .cmp/.mui 合并;.mui 提供 className/displayName,.cmp 提供函数签名
+   * - 空 Inputs/Outputs 的函数也登记(老 Cognition 默认全部空参)
+   */
+  function parseModelDirPaired(
+    root: string,
+    cmpFiles: { path: string; content: string }[],
+    muiFiles: { path: string; content: string }[],
+  ): { classes: number; functions: number } {
+    const baseOf = (p: string): string => {
+      const stem = p.split(/[\\/]/).pop() ?? p;
+      return stem.replace(/\.(cmp|mui)$/i, "");
+    };
+    const map = new Map<string, { baseName: string; cmp?: string; mui?: string }>();
+    for (const f of cmpFiles) {
+      const b = baseOf(f.path);
+      const cur = map.get(b) ?? { baseName: b };
+      cur.cmp = f.content;
+      map.set(b, cur);
+    }
+    for (const f of muiFiles) {
+      const b = baseOf(f.path);
+      const cur = map.get(b) ?? { baseName: b };
+      cur.mui = f.content;
+      map.set(b, cur);
+    }
+    const { classes: cls, functions } = parseCmpMuiPairs([...map.values()]);
+    modelRoot.value = root;
+    modelRawClasses.value = cls;
+    modelRawFunctions.value = functions;
+    bump();
+    console.success(
+      "import",
+      `配对解析(老版).cmp+.mui:${cls.length} 类 · ${functions.length} 方法(待抽取)`,
+      { detail: root },
+    );
+    return { classes: cls.length, functions: functions.length };
+  }
+
   /** 把选中的原始模型类(及其方法)抽取进类型空间(解耦:只取需要的)。 */
   function extractToTypeSpace(classNames: string[]): { classes: number; functions: number } {
     const want = new Set(classNames);
@@ -626,6 +669,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     modelRawClasses,
     modelRawFunctions,
     parseModelDir,
+    parseModelDirPaired,
     extractToTypeSpace,
     newWorkspace,
     reconcileAllBindings,

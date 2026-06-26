@@ -52,10 +52,26 @@ export function parseScenarioUnits(sdataXml: string): ScenarioUnit[] {
   for (const u of arr<Record<string, unknown>>(unitsNode["Unit"] as never)) {
     const md = (u["ModelData"] as Record<string, unknown>) ?? {};
     const components: ScenarioComponent[] = [];
-    for (const [key, val] of Object.entries(md)) {
-      for (const comp of arr<Record<string, unknown>>(val as never)) {
-        const dataId = comp && typeof comp === "object" ? String((comp as Record<string, unknown>)["@_data_id"] ?? "") : "";
-        if (dataId) components.push({ className: key, componentId: dataId });
+    // 新版形态:<ModelData><FzFixedWing data_id="uuid"/>...</ModelData>
+    // 老版形态:<ModelData><中文名><FzOOIC uuid="1" name="..." type="Cognition" .../></中文名></ModelData>
+    //         即 ModelData 下先有一层"模型名"包装层,再列组件。
+    const collect = (container: Record<string, unknown>) => {
+      for (const [key, val] of Object.entries(container)) {
+        for (const comp of arr<Record<string, unknown>>(val as never)) {
+          if (!comp || typeof comp !== "object") continue;
+          const c = comp as Record<string, unknown>;
+          // data_id(新)或 uuid(老)。
+          const compId = String(c["@_data_id"] ?? c["@_uuid"] ?? "");
+          if (compId) components.push({ className: key, componentId: compId });
+        }
+      }
+    };
+    collect(md);
+    // 老版:ModelData 只有一层中文包装时,components 会把"中文名"误当 className 又拿不到 id。
+    // 此时再下钻一层。
+    if (components.length === 0) {
+      for (const inner of Object.values(md)) {
+        if (inner && typeof inner === "object") collect(inner as Record<string, unknown>);
       }
     }
     units.push({
@@ -67,6 +83,68 @@ export function parseScenarioUnits(sdataXml: string): ScenarioUnit[] {
     });
   }
   return units;
+}
+
+/**
+ * 老版分支:把 BT 名字写进 <Unit><Script>ADD Behaviac "name";</Script></Unit>。
+ * - 老引擎解析想定时执行 Script 命令,在 Unit 上挂行为树(按 BT 文件名找 <Root cognition="...">)。
+ * - 若该 Unit 已有同名 ADD Behaviac,根据 policy 决定 reject / overwrite。
+ *
+ * @param sdataXml 整份 .sdata 文本(我们做基于行/正则的局部替换以保留中文 + 注释)
+ * @param unitName 目标 Unit 的 <Name>(老想定 Unit 顺序按 <Name> 索引,而非 uuid)
+ * @param btName 要挂载的行为树名(对应 ModelDatabase/BehaviacTree/<btName>.bt)
+ * @param policy reject = 同名已存在则拒绝;overwrite = 直接替换;backup_then_overwrite = 由调用方负责备份再 overwrite
+ */
+export function attachOldScenario(
+  sdataXml: string,
+  unitName: string,
+  btName: string,
+  policy: AttachPolicy,
+): AttachOutcome {
+  const cmd = `ADD Behaviac "${btName}";`;
+  // 锁定到目标 Unit:从 <Unit> ... <Name>X</Name> ... </Unit> 中找包含 <Name>unitName</Name> 的那段
+  // 用一个稳健的 unitRe,允许中间有任意空白与子节点
+  const unitRe = new RegExp(
+    `(<Unit\\b[^>]*>)([\\s\\S]*?<Name>\\s*${escapeRe(unitName)}\\s*</Name>[\\s\\S]*?)(</Unit>)`,
+    "m",
+  );
+  const m = unitRe.exec(sdataXml);
+  if (!m) {
+    return { ok: false, conflict: false, message: `未找到名为 ${unitName} 的 Unit` };
+  }
+  const before = m[1]!;
+  let inner = m[2]!;
+  const after = m[3]!;
+
+  // 在该 Unit 的 <Script>...</Script> 内插入/替换。<Script> 可能为 <Script></Script> 或带原命令。
+  const scriptRe = /<Script>([\s\S]*?)<\/Script>/;
+  const scriptMatch = scriptRe.exec(inner);
+  let conflict = false;
+  if (scriptMatch) {
+    const body = scriptMatch[1]!;
+    const dupRe = new RegExp(`ADD\\s+Behaviac\\s+"${escapeRe(btName)}"\\s*;`, "i");
+    const hasDup = dupRe.test(body);
+    if (hasDup && policy === "reject") {
+      return { ok: false, conflict: true, message: `Unit ${unitName} 已挂载 ${btName},reject 拒绝` };
+    }
+    conflict = hasDup;
+    let nextBody: string;
+    if (hasDup) nextBody = body.replace(dupRe, cmd);
+    else nextBody = body.trim() ? body.replace(/\s*$/, "") + "\n      " + cmd + "\n    " : cmd;
+    inner = inner.replace(scriptRe, `<Script>${nextBody}</Script>`);
+  } else {
+    // 没有 <Script> 节点:在 </Unit> 前插入
+    inner = inner.replace(/(\s*)$/, `\n      <Script>${cmd}</Script>$1`);
+  }
+  const newXml = sdataXml.slice(0, m.index) + before + inner + after + sdataXml.slice(m.index + m[0].length);
+  return {
+    ok: true,
+    xml: newXml,
+    conflict,
+    message: conflict
+      ? `已替换 Unit ${unitName} 的 ADD Behaviac "${btName}"`
+      : `已写入 Unit ${unitName}:ADD Behaviac "${btName}"`,
+  };
 }
 
 /** 挂接校验:树中每个 类→方法 节点,实体须有该 className 组件,且模型该类须含此方法。 */

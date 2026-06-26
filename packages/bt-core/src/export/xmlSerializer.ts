@@ -15,6 +15,30 @@
  *  - Condition 比较:comparetype="Output" + 子 <Output name op value/>
  */
 import type { BehaviorTreeDef, BTNodeDef, BlackboardDef } from "../types/runtime.js";
+import { fzTypeToOldEngine } from "../types/mal.js";
+import type { FZMARGType } from "../types/mal.js";
+
+/**
+ * 老引擎类型转换:把节点 Input/Output 上的 type 字段(可能是 FZ_MARGTYPE_* 或已是短字符串)
+ * 折算成老引擎 bt_runtime.cpp 期望的 Boolean/Integer/Real/Julian/String/Coordinate。
+ * 已是短字符串就原样返回;空串返回空(由 attr() 自动忽略)。
+ */
+function toOldType(t: string | undefined): string {
+  if (!t) return "";
+  if (t.startsWith("FZ_MARGTYPE_") || t === "FZ_USER_DEFINED") {
+    return fzTypeToOldEngine(t as FZMARGType);
+  }
+  // 旧版 / 中间形态串
+  switch (t) {
+    case "FZIntegerType": case "Int": case "Integer": case "SpinBox": return "Integer";
+    case "FZRealType": case "Real": case "DoubleSpinBox": case "Float": case "float": return "Real";
+    case "FZBOOL": case "Boolean": case "Bool": case "CheckBox": return "Boolean";
+    case "FZJulianType": case "Julian": return "Julian";
+    case "FZStringType": case "FZNameType": case "String": case "Name": case "LineEditor": return "String";
+    case "FZCoordinateType": case "Coordinate": case "Position": return "Coordinate";
+    default: return t;
+  }
+}
 
 const XML_HEADER = "<?xml version='1.0' encoding='utf-8'?>";
 const INDENT = "  ";
@@ -44,17 +68,17 @@ function serializeNode(node: BTNodeDef, level: number): string {
   const lines: string[] = [];
   let open = `${pad(level)}<${el}${attr("id", node.id)}${attr("name", node.name)}`;
 
-  // 函数/脚本与组件选择器
+  // 函数/脚本(老分支:决策函数挂 CyberCognitionImpl,不输出组件选择器;
+  //                靠 FindDecisionFunction 下行转换 + GetMountedModels() 命中)
   if (FUNCTION_ELEMENTS.has(el)) {
     open += attr("function", node.functionName);
-    open += attr("script", node.script);
-    open += attr("scriptRef", node.scriptRef);
+    // 老引擎 bt_runtime 仍读 mdataName/componentId(支持新 loader),
+    // 但老想定不挂 uuid——保留属性但仅在 modelName/componentId 非空时输出,
+    // 让用户在新流程下可选填,默认空就不出现。
     const t = node.target;
-    open += attr("mdataName", t.modelName);
-    open += attr("className", t.modelClass || t.componentClass);
-    open += attr("typeName", t.modelType || t.componentType);
-    open += attr("componentId", t.componentId);
-    open += attr("componentName", t.componentName);
+    if (t.modelName) open += attr("mdataName", t.modelName);
+    if (t.componentId) open += attr("componentId", t.componentId);
+    if (t.modelClass) open += attr("className", t.modelClass);
   }
 
   // 装饰器次数
@@ -93,7 +117,7 @@ function serializeNode(node: BTNodeDef, level: number): string {
   if (node.inputs.length) {
     inner.push(`${pad(level + 1)}<Inputs>`);
     for (const inp of node.inputs) {
-      let line = `${pad(level + 2)}<Input${attr("name", inp.name)}${attr("type", inp.type)}`;
+      let line = `${pad(level + 2)}<Input${attr("name", inp.name)}${attr("type", toOldType(inp.type))}`;
       if (inp.source === "Blackboard") {
         line += ` source="blackboard"${attr("blackboardKey", inp.blackboardId)}${attr("variableKey", inp.variableId)}`;
       } else {
@@ -158,7 +182,10 @@ function serializeBlackboards(blackboards: BlackboardDef[], level: number): stri
 export function serializeBehaviorTreeXml(def: BehaviorTreeDef): string {
   if (!def.root) throw new Error("BehaviorTreeDef.root 为空,无法序列化");
   const lines: string[] = [XML_HEADER];
-  let rootOpen = `<Root${attr("id", def.id)}${attr("projectType", def.projectType)}${attr("name", def.name)}${attr("btTemplateId", def.behaviorTreeTemplateId)}${attr("modelId", def.modelId)}${attr("cognition", def.cognition)}>`;
+  // 老引擎 .bt 的 <Root cognition="认知类名"> 是关键:LoadBehaviorTreeDefFromXML 据此匹配挂载组件。
+  // btTemplateId/modelId 是新流程的可选字段,空则不输出;cognition 为空时回退用 def.name(老 .bt 习惯)。
+  const cognitionName = def.cognition || def.name;
+  let rootOpen = `<Root${attr("id", def.id)}${attr("projectType", def.projectType)}${attr("name", def.name)}${attr("btTemplateId", def.behaviorTreeTemplateId)}${attr("modelId", def.modelId)}${attr("cognition", cognitionName)}>`;
   lines.push(rootOpen);
   lines.push(serializeBlackboards(def.blackboards, 1));
 

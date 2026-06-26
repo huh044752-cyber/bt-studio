@@ -100,3 +100,45 @@ export type ValueFormat =
   | "csv"
   | "fosim-ref"
   | "record-binary-ref";
+
+/**
+ * 老引擎类型字符串（对齐 F:\0411\ccc\FOSimEngine bt_runtime.cpp IsIntegerType/IsRealType）。
+ * 老版 BT XML 的 Input/Output type 属性使用这些简短字符串。
+ */
+export type OldEngineType = "Boolean" | "Integer" | "Real" | "Julian" | "String" | "Coordinate";
+
+/**
+ * 将新版 FZ_MARGTYPE_* 枚举转换为老引擎类型字符串（用于 BT XML 导出）。
+ */
+export function fzTypeToOldEngine(fzType: FZMARGType): OldEngineType {
+  const map: Record<FZMARGType, OldEngineType> = {
+    FZ_MARGTYPE_INTEGER: "Integer",
+    FZ_MARGTYPE_REAL: "Real",
+    FZ_MARGTYPE_BOOL: "Boolean",
+    FZ_MARGTYPE_JULIAN: "Julian",
+    FZ_MARGTYPE_STRING: "String",
+    FZ_MARGTYPE_NAME: "String",
+    FZ_MARGTYPE_COORDINATE: "Coordinate",
+    FZ_MARGTYPE_POSITION: "Coordinate",
+    FZ_MARGTYPE_UNITID: "Integer",
+    FZ_MARGTYPE_EQUIPMENTID: "Integer",
+    FZ_MARGTYPE_ENTITYID: "Integer",
+    FZ_MARGTYPE_TRACK_ID: "Integer",
+    FZ_MARGTYPE_INTERID: "Integer",
+    FZ_MARGTYPE_FEATUREID: "Integer",
+    // 其余类型默认映射为 String（老引擎 bt_runtime 会按需处理）
+    FZ_MARGTYPE_INVALID: "String",
+    FZ_MARGTYPE_TRACK_HANDLE: "String",
+    FZ_MARGTYPE_TRACK_HANDLE_LIST: "String",
+    FZ_MARGTYPE_ENGAGEMENT_INFO: "String",
+    FZ_MARGTYPE_RECORD: "String",
+    FZ_MARGTYPE_VECTOR: "String",
+    FZ_MARGTYPE_ORIENTATION: "String",
+    FZ_MARGTYPE_DMGRC: "String",
+    FZ_MARGTYPE_MAL: "String",
+    FZ_MARGTYPE_ADDRESS: "String",
+    FZ_MARGTYPE_TASK_ID_LIST: "String",
+    FZ_USER_DEFINED: "String",
+  };
+  return map[fzType] ?? "String";
+}

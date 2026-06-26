@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseScenarioUnits, attachTreeToScenario, validateTreeForUnit } from "../src/index.js";
+import { parseScenarioUnits, attachTreeToScenario, validateTreeForUnit, attachOldScenario } from "../src/index.js";
 
 const SDATA = `<?xml version="1.0" encoding="utf-8"?>
 <Scenario>
@@ -65,6 +65,63 @@ describe("场景 .sdata 解析与挂接(R4)", () => {
     // FzFixedWing 不含 Nope → error
     expect(v.issues.find((i) => i.nodeId === "n3")?.level).toBe("error");
     expect(v.errorCount).toBe(2);
+  });
+
+  it("老版 .sdata:ModelData 含中文包装层(uuid 属性)也能解析组件", () => {
+    const oldSdata = `<?xml version="1.0"?>
+<Scenario>
+  <Units>
+    <Unit>
+      <ObjectHandle>1</ObjectHandle>
+      <Name>基地</Name>
+      <ModelName>基地</ModelName>
+      <ModelData>
+        <基地>
+          <FzOOIC note="" uuid="1" name="FzOOIC" type="Cognition" count="1" parent_uuid=""/>
+          <FzBaseC3I note="" uuid="4" name="Fz通信认知" type="Cognition" count="1" parent_uuid=""/>
+        </基地>
+      </ModelData>
+      <Script></Script>
+    </Unit>
+  </Units>
+</Scenario>`;
+    const units = parseScenarioUnits(oldSdata);
+    expect(units.length).toBe(1);
+    const u = units[0]!;
+    expect(u.name).toBe("基地");
+    expect(u.components.find((c) => c.className === "FzOOIC")?.componentId).toBe("1");
+    expect(u.components.find((c) => c.className === "FzBaseC3I")?.componentId).toBe("4");
+  });
+
+  it("attachOldScenario:把 ADD Behaviac 写入 <Unit><Script>", () => {
+    const oldSdata = `<?xml version="1.0"?>
+<Scenario>
+  <Units>
+    <Unit>
+      <ObjectHandle>1</ObjectHandle>
+      <Name>歼-10</Name>
+      <ModelData><机型><FzOOIC uuid="1" type="Cognition"/></机型></ModelData>
+      <Script></Script>
+    </Unit>
+    <Unit>
+      <ObjectHandle>2</ObjectHandle>
+      <Name>基地</Name>
+      <Script></Script>
+    </Unit>
+  </Units>
+</Scenario>`;
+    const r = attachOldScenario(oldSdata, "歼-10", "air_to_m", "overwrite");
+    expect(r.ok).toBe(true);
+    expect(r.xml).toMatch(/歼-10[\s\S]*<Script>ADD Behaviac "air_to_m";<\/Script>/);
+    // 不影响其它 Unit
+    expect(r.xml).toMatch(/<Name>基地<\/Name>[\s\S]*?<Script><\/Script>/);
+    // reject 重复
+    const dup = attachOldScenario(r.xml!, "歼-10", "air_to_m", "reject");
+    expect(dup.ok).toBe(false);
+    expect(dup.conflict).toBe(true);
+    // 不存在的 Unit
+    const miss = attachOldScenario(oldSdata, "无此实体", "x", "overwrite");
+    expect(miss.ok).toBe(false);
   });
 
   it("同名实例:reject 拒绝,overwrite 替换", () => {

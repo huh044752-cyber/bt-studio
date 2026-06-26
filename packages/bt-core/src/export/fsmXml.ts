@@ -15,6 +15,25 @@
 import type { DesignTree, DesignNode } from "../types/editor.js";
 import { malToXmlType } from "../mal/malMapping.js";
 import { xmlEscape } from "./xmlSerializer.js";
+import { fzTypeToOldEngine } from "../types/mal.js";
+import type { FZMARGType } from "../types/mal.js";
+
+/** 老引擎类型转换(与 xmlSerializer.toOldType 同义,这里复制避免循环导出)。 */
+function toOldType(t: string | undefined): string {
+  if (!t) return "";
+  if (t.startsWith("FZ_MARGTYPE_") || t === "FZ_USER_DEFINED") {
+    return fzTypeToOldEngine(t as FZMARGType);
+  }
+  switch (t) {
+    case "FZIntegerType": case "Int": case "Integer": case "SpinBox": return "Integer";
+    case "FZRealType": case "Real": case "DoubleSpinBox": case "Float": case "float": return "Real";
+    case "FZBOOL": case "Boolean": case "Bool": case "CheckBox": return "Boolean";
+    case "FZJulianType": case "Julian": return "Julian";
+    case "FZStringType": case "FZNameType": case "String": case "Name": case "LineEditor": return "String";
+    case "FZCoordinateType": case "Coordinate": case "Position": return "Coordinate";
+    default: return t;
+  }
+}
 
 export class FsmExportError extends Error {
   constructor(message: string) {
@@ -30,15 +49,13 @@ function attr(name: string, value: string | number | boolean | undefined): strin
 
 const TRANSITION_TYPES = new Set(["ConditionTransition", "StateTransition", "Transition"]);
 
-/** 目标选择器属性(场景挂载需要:类 / 组件)。 */
+/** 目标选择器属性(老版:仅在用户填写时输出 cognition/componentId,默认 BT 引擎按 cognition 自动绑定)。 */
 function targetAttrs(n: DesignNode): string {
   const t = n.targetSelector;
   if (!t) return "";
   return (
-    attr("cognition", t.modelClass) +
-    attr("modelClass", t.modelClass) +
-    attr("componentId", t.componentId) +
-    attr("componentClass", t.modelClass)
+    (t.modelClass ? attr("cognition", t.modelClass) : "") +
+    (t.componentId ? attr("componentId", t.componentId) : "")
   );
 }
 
@@ -48,7 +65,7 @@ function ioBlocks(n: DesignNode, indent: string): string[] {
   if (n.inputBindings.length) {
     lines.push(`${indent}<Inputs>`);
     for (const b of n.inputBindings) {
-      const type = b.type || (b.malType ? malToXmlType(b.malType) : "");
+      const type = toOldType(b.type || (b.malType ? malToXmlType(b.malType) : ""));
       if (b.source === "blackboard") {
         lines.push(
           `${indent}  <Input${attr("name", b.name)}${attr("type", type)} value="" source="blackboard"${attr("blackboardKey", b.blackboardId)}${attr("variableKey", b.variableId)} />`,
@@ -107,9 +124,10 @@ export function serializeFsmXml(tree: DesignTree): string {
     for (const t of transitions) {
       const cls = t.nodeType === "StateTransition" ? "StateTransform" : "ConditionTransform";
       const tid = nextTransId++;
+      // 老版分支:转移不挂 btInstanceId(uuid),behaviac_tree 也只在状态上用。
       const thead =
         `${indent}  <${cls}${attr("id", tid)}${attr("name", t.name)}${attr("action", t.functionRef)}` +
-        `${attr("conditionScript", t.script)}${attr("btInstanceId", t.subtreeRef)}${targetAttrs(t)}`;
+        `${targetAttrs(t)}`;
       const tInner: string[] = [...ioBlocks(t, indent + "    ")];
 
       // 目标:首次出现 → 嵌套完整 <State>;已出现 → <Goto id>。

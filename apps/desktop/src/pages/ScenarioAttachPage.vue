@@ -13,6 +13,7 @@ import { scanScenarios, readPathText, writeScenarioFile, readTextFile, writeArti
 import {
   parseScenarioUnits,
   attachTreeToScenario,
+  attachOldScenario,
   validateTreeForUnit,
   type ScenarioUnit,
   type AttachPolicy,
@@ -120,6 +121,46 @@ async function attach() {
   c.success("publish", `挂接完成:${tree.value.treeName} → ${selUnit.value.name}`);
 }
 
+/**
+ * 老引擎挂载:把当前行为树名字写到选中 Unit 的 <Script>ADD Behaviac "name";</Script>。
+ * - 不写 BehaviorTreeInstance(老想定无该层)
+ * - 同时把 BT XML 写到 ModelDatabase/BehaviacTree/<name>.bt(用户可自行复制到老引擎模型库)
+ */
+async function attachOld() {
+  if (!selScenario.value || !selUnit.value || !tree.value) throw new Error("未选场景/实体/树");
+  const isFsm = (tree.value.projectKind ?? "behavior_tree") === "state_machine";
+  let xml: string;
+  if (isFsm) {
+    const r = ws.exportFsmCurrent();
+    if (!r.ok || !r.xml) throw new Error(r.error || "状态机导出失败");
+    xml = r.xml;
+  } else {
+    const res = ws.exportCurrent();
+    if (!res.ok || !res.artifacts) throw new Error(res.error || "导出失败");
+    xml = res.artifacts.xml;
+  }
+  const out = attachOldScenario(sdataXml.value, selUnit.value.name, tree.value.treeName, policy.value);
+  if (!out.ok) { c.warning("publish", out.message); throw new Error(out.message); }
+  const w = await writeScenarioFile(selScenario.value.sdataPath, out.xml!, policy.value !== "overwrite");
+  backupPath.value = w.backupPath ?? "";
+  const btOut = await writeArtifact(`${tree.value.treeName}.${isFsm ? "fsm" : "bt"}.xml`, xml);
+  sdataXml.value = out.xml!;
+  result.value = {
+    mode: "old-engine",
+    success: w.ok,
+    scenario: selScenario.value.name,
+    unit: selUnit.value.name,
+    tree: tree.value.treeName,
+    conflict: out.conflict,
+    sdataPath: w.path,
+    backupPath: backupPath.value || "(overwrite 无备份)",
+    btTemplate: btOut.path,
+    rollbackApplied: false,
+    message: out.message + (w.viaDownload ? "(浏览器下载)" : ""),
+  };
+  c.success("publish", `老版挂载完成:${tree.value.treeName} → Unit ${selUnit.value.name} <Script>`);
+}
+
 async function rollback() {
   if (!backupPath.value || !selScenario.value) throw new Error("无备份");
   const bak = await readPathText(backupPath.value);
@@ -141,6 +182,7 @@ async function rollback() {
         <option value="backup_then_overwrite">backup_then_overwrite</option>
       </select>
       <ActionButton label="确认写回 (.sdata+.bt)" :primary="true" :disabled="!canAttach" confirm="将写回想定与模板,确认?" @run="attach" />
+      <ActionButton label="老版挂载 (Script ADD Behaviac)" :disabled="!selScenario || !selUnit || !tree" confirm="将向 Unit 的 <Script> 写入 ADD Behaviac,确认?" @run="attachOld" />
       <ActionButton label="回滚" danger :disabled="!backupPath" @run="rollback" />
     </div>
 

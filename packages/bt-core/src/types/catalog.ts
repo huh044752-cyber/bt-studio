@@ -162,21 +162,21 @@ export interface ClassDescriptor {
   baseClass?: string;
 }
 
-/** .cmp type(模型分类)-> 引擎基类。 */
+/** .cmp type(模型分类)-> 引擎基类（老引擎 Cyber* 前缀）。 */
 export function categoryToBaseClass(category: string): string {
   const map: Record<string, string> = {
-    RuleDecision: "FZCognitionImpl",
-    MissionAction: "FzBaseMissionAction",
-    Jammers: "FZJammerImpl",
-    Platforms: "FZPlatformImpl",
-    DataProcessors: "FZDataProcessorImpl",
-    Sensors: "FZSensorImpl",
-    Munitions: "FZMunitionImpl",
-    WeaponSystems: "FZWeaponSystemImpl",
-    ComDevices: "FZComDeviceImpl",
-    SubSystems: "FZSubSystemImpl",
+    RuleDecision: "CyberCognitionImpl",
+    MissionAction: "CyberBaseMissionAction",
+    Jammers: "CyberJammerImpl",
+    Platforms: "CyberPlatformImpl",
+    DataProcessors: "CyberDataProcessorImpl",
+    Sensors: "CyberSensorImpl",
+    Munitions: "CyberMunitionImpl",
+    WeaponSystems: "CyberWeaponSystemImpl",
+    ComDevices: "CyberComDeviceImpl",
+    SubSystems: "CyberSubSystemImpl",
   };
-  return map[category] ?? "FZCognitionImpl";
+  return map[category] ?? "CyberCognitionImpl";
 }
 
 export interface MemberDescriptor {
