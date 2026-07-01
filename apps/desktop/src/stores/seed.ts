@@ -14,9 +14,9 @@ export function seedWorkspace(): void {
 
   ws.functionCatalog.functions = sampleFunctions();
   ws.classes.push(
-    { classId: "cls_air", className: "FZAirFighter", displayName: "战机 FZAirFighter", category: "RuleDecision", hostModule: "air", source: "model", baseClass: "FZCognitionImpl" },
-    { classId: "cls_jam", className: "FzComRadioJam", displayName: "通信干扰 FzComRadioJam", category: "Jammers", hostModule: "ew", source: "model", baseClass: "FZJammerImpl" },
-    { classId: "cls_sensor", className: "FZSensor", displayName: "传感器 FZSensor", category: "Sensors", hostModule: "avionic", source: "model", baseClass: "FZSensorImpl" },
+    { classId: "cls_air", className: "CyberAirFighter", displayName: "战机 CyberAirFighter", category: "RuleDecision", hostModule: "air", source: "model", baseClass: "CyberCognitionImpl" },
+    { classId: "cls_jam", className: "CyberComRadioJam", displayName: "通信干扰 CyberComRadioJam", category: "Jammers", hostModule: "ew", source: "model", baseClass: "CyberJammerImpl" },
+    { classId: "cls_sensor", className: "CyberSensor", displayName: "传感器 CyberSensor", category: "Sensors", hostModule: "avionic", source: "model", baseClass: "CyberSensorImpl" },
   );
 
   const bb = createBlackboard("空战全局板", "global", { blackboardId: "nd_air_global" });
@@ -52,21 +52,21 @@ function buildBigBT(ws: ReturnType<typeof useWorkspaceStore>, bb: ReturnType<typ
   // Selector -> Sequence: 先探测再决策
   const seqDetect = a("Sequence", "探测与判定", sel, "", "");
   // 探测分支:Sequence 下 Condition + Action 对
-  a("Condition", "雷达在射程内", seqDetect, "FZAirFighter", "CheckEngage");
-  a("Action", "锁定目标", seqDetect, "FZAirFighter", "Engage");
+  a("Condition", "雷达在射程内", seqDetect, "CyberAirFighter", "CheckEngage");
+  a("Action", "锁定目标", seqDetect, "CyberAirFighter", "Engage");
   // 并行分支:并行监测威胁并干扰
   const parallel = a("Parallel", "并行威胁响应", sel, "", "");
-  a("Action", "通信干扰", parallel, "FzComRadioJam", "JamTarget");
-  a("Action", "发射诱饵", parallel, "FZAirFighter", "Deploy");
+  a("Action", "通信干扰", parallel, "CyberComRadioJam", "JamTarget");
+  a("Action", "发射诱饵", parallel, "CyberAirFighter", "Deploy");
   // 回退:Selector -> Sequence: 撤退
   const seqRetreat = a("Sequence", "撤退程序", sel, "", "");
-  a("Condition", "威胁解除", seqRetreat, "FZAirFighter", "CheckSafe");
-  a("Action", "巡逻待命", seqRetreat, "FZAirFighter", "Patrol");
+  a("Condition", "威胁解除", seqRetreat, "CyberAirFighter", "CheckSafe");
+  a("Action", "巡逻待命", seqRetreat, "CyberAirFighter", "Patrol");
   // 再加一个 Selector 分支:Selector 下 Sequence -> 传感器激活
   const seqSensor = a("Sequence", "传感器联调", sel, "", "");
-  a("Action", "激活雷达", seqSensor, "FZSensor", "Activate");
-  a("Action", "校准对准", seqSensor, "FZSensor", "Align");
-  a("Action", "开始扫描", seqSensor, "FZSensor", "Scan");
+  a("Action", "激活雷达", seqSensor, "CyberSensor", "Activate");
+  a("Action", "校准对准", seqSensor, "CyberSensor", "Align");
+  a("Action", "开始扫描", seqSensor, "CyberSensor", "Scan");
 }
 
 function buildFSM(ws: ReturnType<typeof useWorkspaceStore>, bb: ReturnType<typeof createBlackboard>) {
@@ -87,16 +87,16 @@ function buildFSM(ws: ReturnType<typeof useWorkspaceStore>, bb: ReturnType<typeo
   // behaviac/vue2 式 FSM:Root 只连【初始状态】一个(StartCondition→入口);其余状态是平级节点,
   // 仅通过转移的 transitionTarget(Goto)到达。这样根节点只有 1 条连接。
   // 转移节点是其"源 State"的结构子;转移指向的"目标 State"用 transitionTarget 引用。
-  const sPatrol = a("State", "巡逻", root, "FZAirFighter", "Patrol"); // 初始状态(Root 唯一子)
-  const sEngage = a("State", "交战", "", "FZAirFighter", "Engage"); // 平级状态(无结构父,经转移到达)
-  const sRetreat = a("State", "撤退", "", "FZAirFighter", "Retreat");
+  const sPatrol = a("State", "巡逻", root, "CyberAirFighter", "Patrol"); // 初始状态(Root 唯一子)
+  const sEngage = a("State", "交战", "", "CyberAirFighter", "Engage"); // 平级状态(无结构父,经转移到达)
+  const sRetreat = a("State", "撤退", "", "CyberAirFighter", "Retreat");
 
   // 巡逻 --发现目标--> 交战
-  a("ConditionTransition", "发现目标", sPatrol, "FZAirFighter", "DetectTarget", { transitionTarget: sEngage });
+  a("ConditionTransition", "发现目标", sPatrol, "CyberAirFighter", "DetectTarget", { transitionTarget: sEngage });
   // 交战 --弹药不足--> 撤退
-  a("ConditionTransition", "弹药不足", sEngage, "FZAirFighter", "CheckAmmoLow", { transitionTarget: sRetreat });
+  a("ConditionTransition", "弹药不足", sEngage, "CyberAirFighter", "CheckAmmoLow", { transitionTarget: sRetreat });
   // 撤退 --安全--> 巡逻(回连)
-  a("ConditionTransition", "安全", sRetreat, "FZAirFighter", "CheckSafe", { transitionTarget: sPatrol });
+  a("ConditionTransition", "安全", sRetreat, "CyberAirFighter", "CheckSafe", { transitionTarget: sPatrol });
 }
 
 function sampleFunctions(): FunctionDescriptor[] {
@@ -106,8 +106,8 @@ function sampleFunctions(): FunctionDescriptor[] {
       name: "Engage",
       displayName: "进入交战",
       category: "action",
-      bindingTarget: "FZAirFighter.Engage",
-      ownerClass: "FZAirFighter",
+      bindingTarget: "CyberAirFighter.Engage",
+      ownerClass: "CyberAirFighter",
       returnType: "CyberDFMPFRC",
       description: "命令战机进入交战",
       params: [
@@ -120,8 +120,8 @@ function sampleFunctions(): FunctionDescriptor[] {
       name: "CheckEngage",
       displayName: "允许交战判定",
       category: "condition",
-      bindingTarget: "FZAirFighter.CheckEngage",
-      ownerClass: "FZAirFighter",
+      bindingTarget: "CyberAirFighter.CheckEngage",
+      ownerClass: "CyberAirFighter",
       returnType: "CyberDFMPFRC",
       params: [
         { paramId: "p1", name: "RANGE", direction: "input", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", required: true },
@@ -132,23 +132,23 @@ function sampleFunctions(): FunctionDescriptor[] {
       name: "JamTarget",
       displayName: "通信干扰",
       category: "action",
-      bindingTarget: "FzComRadioJam.JamTarget",
-      ownerClass: "FzComRadioJam",
+      bindingTarget: "CyberComRadioJam.JamTarget",
+      ownerClass: "CyberComRadioJam",
       returnType: "CyberDFMPFRC",
       params: [
         { paramId: "p1", name: "DURATION_TIME", direction: "input", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", required: true },
         { paramId: "p2", name: "JAMMER_STATUS", direction: "output", displayType: "int", malType: "CYBER_MARGTYPE_INTEGER", valueFormat: "literal", required: false },
       ],
     },
-    { functionId: "fn_deploy", name: "Deploy", displayName: "发射诱饵", category: "action", bindingTarget: "FZAirFighter.Deploy", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", params: [] },
-    { functionId: "fn_check_safe", name: "CheckSafe", displayName: "威胁解除判定", category: "condition", bindingTarget: "FZAirFighter.CheckSafe", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", params: [] },
-    { functionId: "fn_patrol", name: "Patrol", displayName: "巡逻待命", category: "action", bindingTarget: "FZAirFighter.Patrol", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "REGION", direction: "input", displayType: "string", malType: "CYBER_MARGTYPE_STRING", valueFormat: "literal", required: true }] },
-    { functionId: "fn_activate", name: "Activate", displayName: "激活雷达", category: "action", bindingTarget: "FZSensor.Activate", ownerClass: "FZSensor", returnType: "CyberDFMPFRC", params: [] },
-    { functionId: "fn_align", name: "Align", displayName: "校准对准", category: "action", bindingTarget: "FZSensor.Align", ownerClass: "FZSensor", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "AZIMUTH", direction: "input", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", required: true }] },
-    { functionId: "fn_scan", name: "Scan", displayName: "开始扫描", category: "action", bindingTarget: "FZSensor.Scan", ownerClass: "FZSensor", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "SCAN_RESULT", direction: "output", displayType: "vector", malType: "CYBER_MARGTYPE_VECTOR", valueFormat: "literal", required: false }] },
-    { functionId: "fn_retreat", name: "Retreat", displayName: "撤退", category: "action", bindingTarget: "FZAirFighter.Retreat", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "RETREAT_POS", direction: "output", displayType: "position", malType: "CYBER_MARGTYPE_POSITION", valueFormat: "literal", required: false }] },
-    { functionId: "fn_detect", name: "DetectTarget", displayName: "目标探测", category: "condition", bindingTarget: "FZAirFighter.DetectTarget", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "MIN_SIGNAL", direction: "input", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", required: true }] },
-    { functionId: "fn_ammo", name: "CheckAmmoLow", displayName: "弹药不足判定", category: "condition", bindingTarget: "FZAirFighter.CheckAmmoLow", ownerClass: "FZAirFighter", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "THRESHOLD", direction: "input", displayType: "int", malType: "CYBER_MARGTYPE_INTEGER", valueFormat: "literal", required: true }] },
+    { functionId: "fn_deploy", name: "Deploy", displayName: "发射诱饵", category: "action", bindingTarget: "CyberAirFighter.Deploy", ownerClass: "CyberAirFighter", returnType: "CyberDFMPFRC", params: [] },
+    { functionId: "fn_check_safe", name: "CheckSafe", displayName: "威胁解除判定", category: "condition", bindingTarget: "CyberAirFighter.CheckSafe", ownerClass: "CyberAirFighter", returnType: "CyberDFMPFRC", params: [] },
+    { functionId: "fn_patrol", name: "Patrol", displayName: "巡逻待命", category: "action", bindingTarget: "CyberAirFighter.Patrol", ownerClass: "CyberAirFighter", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "REGION", direction: "input", displayType: "string", malType: "CYBER_MARGTYPE_STRING", valueFormat: "literal", required: true }] },
+    { functionId: "fn_activate", name: "Activate", displayName: "激活雷达", category: "action", bindingTarget: "CyberSensor.Activate", ownerClass: "CyberSensor", returnType: "CyberDFMPFRC", params: [] },
+    { functionId: "fn_align", name: "Align", displayName: "校准对准", category: "action", bindingTarget: "CyberSensor.Align", ownerClass: "CyberSensor", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "AZIMUTH", direction: "input", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", required: true }] },
+    { functionId: "fn_scan", name: "Scan", displayName: "开始扫描", category: "action", bindingTarget: "CyberSensor.Scan", ownerClass: "CyberSensor", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "SCAN_RESULT", direction: "output", displayType: "vector", malType: "CYBER_MARGTYPE_VECTOR", valueFormat: "literal", required: false }] },
+    { functionId: "fn_retreat", name: "Retreat", displayName: "撤退", category: "action", bindingTarget: "CyberAirFighter.Retreat", ownerClass: "CyberAirFighter", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "RETREAT_POS", direction: "output", displayType: "position", malType: "CYBER_MARGTYPE_POSITION", valueFormat: "literal", required: false }] },
+    { functionId: "fn_detect", name: "DetectTarget", displayName: "目标探测", category: "condition", bindingTarget: "CyberAirFighter.DetectTarget", ownerClass: "CyberAirFighter", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "MIN_SIGNAL", direction: "input", displayType: "float", malType: "CYBER_MARGTYPE_REAL", valueFormat: "literal", required: true }] },
+    { functionId: "fn_ammo", name: "CheckAmmoLow", displayName: "弹药不足判定", category: "condition", bindingTarget: "CyberAirFighter.CheckAmmoLow", ownerClass: "CyberAirFighter", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "THRESHOLD", direction: "input", displayType: "int", malType: "CYBER_MARGTYPE_INTEGER", valueFormat: "literal", required: true }] },
   ];
 }
 

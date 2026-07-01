@@ -94,6 +94,34 @@ describe("Export Pipeline(文档 §16.2)", () => {
     expect(xml).toContain('scope="global"');
   });
 
+  it("老引擎分支:<Blackboards>/<Variable type> 走 mapVariableType(短串)", () => {
+    // 场景:一个绑到黑板的输入 + 一个黑板变量 → 老引擎分支上都应输出 Integer/Real 等短串,而非 CyberIntegerType 长串。
+    const { bus, ids } = buildMinimalTree();
+    const bb: Blackboard = makeBlackboard();
+    bus.execute({
+      kind: "BindVariable",
+      nodeId: ids.action!,
+      direction: "input",
+      binding: {
+        name: "DURATION_TIME",
+        type: "CyberRealType",
+        source: "blackboard",
+        blackboardId: bb.blackboardId,
+        variableId: "bb_duration",
+        malType: "CYBER_MARGTYPE_REAL",
+      },
+    });
+    const res = pipeline.exportAll({ doc: createDocument(bus.getTree()), blackboards: [bb] });
+    expect(res.ok).toBe(true);
+    const xml = res.artifacts!.xml;
+    // 节点 <Input type> 短串
+    expect(xml).toMatch(/<Input[^>]*type="Real"/);
+    expect(xml).not.toMatch(/<Input[^>]*type="CyberRealType"/);
+    // 黑板 <Variable type> 也短串(与 Input 一致)
+    expect(xml).toMatch(/<Variable[^>]*type="Real"/);
+    expect(xml).not.toMatch(/<Variable[^>]*type="CyberRealType"/);
+  });
+
   it("条件比较字段映射(comparetype=Output + Output op/value)", () => {
     const { bus, ids } = buildMinimalTree();
     bus.execute({

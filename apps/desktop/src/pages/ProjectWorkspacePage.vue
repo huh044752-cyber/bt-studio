@@ -595,7 +595,7 @@ const stats = computed(() => {
           <option value="cs">C#</option>
         </select>
       </label>
-      <div class="note">生成完整工程将在「导出代码目录」下产出:用户 Agent 类(继承 FZDecisionAgentBase)+ RegisterFunctions + 行为树 XML + main.cpp + CMakeLists。改动模型目录后将自动重扫。</div>
+      <div class="note">生成完整工程将在「导出代码目录」下产出:用户 Agent 类(继承 CyberDecisionAgentBase)+ RegisterFunctions + 行为树 XML + main.cpp + CMakeLists。改动模型目录后将自动重扫。</div>
     </ModalDialog>
 
     <!-- 导出选择对话框:勾选要包含到本次导出的 BT/FSM -->

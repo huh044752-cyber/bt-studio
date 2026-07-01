@@ -96,14 +96,14 @@ const SAMPLE = `<?xml version='1.0' encoding='utf-8'?>
     </enumtype>
   </types>
   <agents>
-    <agent classfullname="FZAirFighter" base="behaviac::Agent" DisplayName="战机">
-      <Member Name="speed" Class="FZAirFighter" Type="float" Static="false" Public="true" />
-      <Member Name="g_round" Class="FZAirFighter" Type="int" Static="true" Public="true" />
-      <Method Name="Engage" DisplayName="进入交战" Class="FZAirFighter" ReturnType="behaviac::EBTStatus">
+    <agent classfullname="CyberAirFighter" base="behaviac::Agent" DisplayName="战机">
+      <Member Name="speed" Class="CyberAirFighter" Type="float" Static="false" Public="true" />
+      <Member Name="g_round" Class="CyberAirFighter" Type="int" Static="true" Public="true" />
+      <Method Name="Engage" DisplayName="进入交战" Class="CyberAirFighter" ReturnType="behaviac::EBTStatus">
         <Param Name="TARGET" Type="string" DisplayName="目标" />
         <Param Name="RESULT" Type="int" IsRef="true" DisplayName="结果" />
       </Method>
-      <Method Name="InRange" DisplayName="在射程内" Class="FZAirFighter" ReturnType="bool">
+      <Method Name="InRange" DisplayName="在射程内" Class="CyberAirFighter" ReturnType="bool">
         <Param Name="RANGE" Type="float" DisplayName="距离" />
       </Method>
     </agent>
@@ -140,12 +140,12 @@ function exportMeta() {
   c.success("export", "导出 meta.xml");
 }
 
-/** 可选 FZ 运行类型(成员/参数)。 */
+/** 可选 Cyber 运行类型(成员/参数)。 */
 const CYBER_TYPES = ["CyberIntegerType", "CyberRealType", "CyberBOOL", "CyberStringType", "CyberNameType", "CyberVectorType", "CyberPositionType", "CyberCoordinateType", "CyberOrientationType", "CyberJulianType"];
 /** 类方法返回值固定为 CyberDFMPFRC(FOSim 引擎模型决策/条件函数统一返回值)。 */
 const FIXED_RETURN = "CyberDFMPFRC";
-/** FZ → displayType(给参数补 displayType,便于黑板按类型过滤)。 */
-function fzToDisplay(fz: string): string {
+/** Cyber 运行类型 → displayType(给参数补 displayType,便于黑板按类型过滤)。 */
+function cyberToDisplay(fz: string): string {
   const s = fz.toLowerCase();
   if (s.includes("bool")) return "bool";
   if (s.includes("real")) return "float";
@@ -179,7 +179,7 @@ function removeParam(m: { params: unknown[] }, idx: number) {
 }
 function onParamType(p: Record<string, unknown>, fz: string) {
   p.originalType = fz;
-  p.displayType = fzToDisplay(fz);
+  p.displayType = cyberToDisplay(fz);
   ws.bump();
 }
 
@@ -283,7 +283,7 @@ function collapseAll(v: boolean) {
               </div>
               <input class="input tiny desc" v-model="m.description" placeholder="方法说明(描述,鼠标悬停节点时显示)" />
               <div v-if="m.params.length" class="param-head">
-                <span style="width:108px">参数名</span><span style="width:88px">中文名</span><span style="width:120px">FZ 类型</span><span style="width:76px">方向</span>
+                <span style="width:108px">参数名</span><span style="width:88px">中文名</span><span style="width:120px">Cyber 类型</span><span style="width:76px">方向</span>
               </div>
               <div v-for="(p, pi) in m.params" :key="p.paramId" class="param-row">
                 <input class="input tiny" style="width:108px" v-model="p.name" placeholder="参数名" />
@@ -299,7 +299,7 @@ function collapseAll(v: boolean) {
               </div>
             </div>
             <!-- 成员 -->
-            <div class="sub-head"><span class="dot v" />成员(变量声明 · FZ 类型)</div>
+            <div class="sub-head"><span class="dot v" />成员(变量声明 · Cyber 类型)</div>
             <div v-if="a.members.length === 0" class="muted-2 sub-empty">暂无成员,点「＋成员」。</div>
             <div v-for="m in a.members" :key="m.memberId" class="member-row">
               <input class="input tiny nm" v-model="m.memberName" placeholder="成员名" />

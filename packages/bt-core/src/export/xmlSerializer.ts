@@ -28,17 +28,30 @@ function toOldType(t: string | undefined): string {
   if (t.startsWith("CYBER_MARGTYPE_") || t === "CYBER_USER_DEFINED") {
     return cyberTypeToOldEngine(t as CyberMARGType);
   }
-  // 老引擎短串身份直通
+  // 老引擎短串身份直通 + Cyber*Type 长串(malToXmlType 产出)也折算短串
   switch (t) {
-    case "Int": case "Integer": case "SpinBox": return "Integer";
-    case "Real": case "DoubleSpinBox": case "Float": case "float": return "Real";
-    case "Boolean": case "Bool": case "CheckBox": return "Boolean";
-    case "Julian": return "Julian";
-    case "String": case "Name": case "LineEditor": return "String";
-    case "Coordinate": case "Position": return "Coordinate";
+    case "Int": case "Integer": case "SpinBox": case "CyberIntegerType": return "Integer";
+    case "Real": case "DoubleSpinBox": case "Float": case "float": case "CyberRealType": return "Real";
+    case "Boolean": case "Bool": case "CheckBox": case "CyberBOOL": return "Boolean";
+    case "Julian": case "CyberJulianType": return "Julian";
+    case "String": case "Name": case "LineEditor": case "CyberStringType": case "CyberNameType": return "String";
+    case "Coordinate": case "Position": case "CyberCoordinateType": case "CyberPositionType": case "CyberVectorType": case "CyberOrientationType": return "Coordinate";
     default: return t;
   }
 }
+
+/**
+ * 统一的 type-mapping 入口:节点 <Input type> / 黑板 <Variable type> / workspace <Variable type> 三处
+ * 全部经它出 XML。master 分支上此函数体是恒等映射(输出 CyberIntegerType 长串);
+ * old-engine-compat 上代理到 toOldType(输出 Integer/Real 短串)。
+ * 两分支只在此函数体上分岔,便于跨分支同步。
+ */
+export function mapVariableType(t: string | undefined): string {
+  return toOldType(t);
+}
+
+/** workspaceXml 用的 <Variable type> fallback 默认串(master 上是 "CyberStringType",老分支上是 "String")。 */
+export const DEFAULT_VARIABLE_TYPE = "String";
 
 const XML_HEADER = "<?xml version='1.0' encoding='utf-8'?>";
 const INDENT = "  ";
@@ -117,7 +130,7 @@ function serializeNode(node: BTNodeDef, level: number): string {
   if (node.inputs.length) {
     inner.push(`${pad(level + 1)}<Inputs>`);
     for (const inp of node.inputs) {
-      let line = `${pad(level + 2)}<Input${attr("name", inp.name)}${attr("type", toOldType(inp.type))}`;
+      let line = `${pad(level + 2)}<Input${attr("name", inp.name)}${attr("type", mapVariableType(inp.type))}`;
       if (inp.source === "Blackboard") {
         line += ` source="blackboard"${attr("blackboardKey", inp.blackboardId)}${attr("variableKey", inp.variableId)}`;
       } else {
@@ -170,7 +183,7 @@ function serializeBlackboards(blackboards: BlackboardDef[], level: number): stri
     lines.push(`${head}>`);
     for (const v of vars) {
       lines.push(
-        `${pad(level + 2)}<Variable${attr("key", v.key)}${attr("id", v.id)}${attr("type", v.type)}${attr("value", v.value)} />`,
+        `${pad(level + 2)}<Variable${attr("key", v.key)}${attr("id", v.id)}${attr("type", mapVariableType(v.type))}${attr("value", v.value)} />`,
       );
     }
     lines.push(`${pad(level + 1)}</Blackboard>`);

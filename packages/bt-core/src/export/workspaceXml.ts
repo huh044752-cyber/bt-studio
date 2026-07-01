@@ -15,7 +15,7 @@
  */
 import type { DesignTree } from "../types/editor.js";
 import type { Blackboard, CatalogBundle } from "../types/catalog.js";
-import { xmlEscape } from "./xmlSerializer.js";
+import { xmlEscape, mapVariableType, DEFAULT_VARIABLE_TYPE } from "./xmlSerializer.js";
 import { serializeBehaviorTreeXml } from "./xmlSerializer.js";
 import { toBehaviorTreeDef } from "./toBehaviorTreeDef.js";
 import { serializeFsmXml } from "./fsmXml.js";
@@ -82,7 +82,7 @@ export function serializeWorkspaceXml(ws: WorkspaceXmlInput): string {
     lines.push(head);
     for (const v of bb.variables) {
       lines.push(
-        `      <Variable${attr("key", v.name)}${attr("id", v.variableId)}${attr("type", v.malType ? malToXmlType(v.malType) : "CyberStringType")}${attr("value", v.defaultValue)}${attr("displayType", v.displayType)} />`,
+        `      <Variable${attr("key", v.name)}${attr("id", v.variableId)}${attr("type", v.malType ? mapVariableType(malToXmlType(v.malType)) : DEFAULT_VARIABLE_TYPE)}${attr("value", v.defaultValue)}${attr("displayType", v.displayType)} />`,
       );
     }
     lines.push("    </Blackboard>");

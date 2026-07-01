@@ -260,8 +260,8 @@ export async function fetchBundledRuntime(): Promise<{ path: string; content: st
 
 const ENGINE_CORE_CMAKE = `# fosim_engine_core —— 从 FOSim 引擎 modules/extern 抽取的【真实】行为树/状态机核心库:
 #   bt_xml_loader(Action/Sequence/Selector/… 节点 XML 解析)+ bt_runtime(映射/绑定/调度)
-#   + state_machine_*(状态机)+ core/mal(FZMalImpl)+ pugi(XML)。verbatim,不魔改。
-# 注意:bt_runtime.cpp / agent.cpp 引用引擎业务头(models/cognition、modules/unit、FZSimIO 等),
+#   + state_machine_*(状态机)+ core/mal(CyberMalImpl)+ pugi(XML)。verbatim,不魔改。
+# 注意:bt_runtime.cpp / agent.cpp 引用引擎业务头(models/cognition、modules/unit、CyberSimIO 等),
 #       需把引擎 include 根加入 ENGINE_EXTRA_INCLUDE 才能完整编译;仅解析(bt_xml_loader)可独立编译。
 cmake_minimum_required(VERSION 3.16)
 set(ENGINE_EXTRA_INCLUDE "" CACHE PATH "FOSim 引擎 include 根(用于解析 bt_runtime 引用的业务头)")

@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import {
   defaultRegistry, VALID_COMPARE_OPS, COMPARE_OP_LABELS,
-  functionOwnerClass, malFzLabel, isWritebackCompatible, validateMalValueConversion,
+  functionOwnerClass, malCyberLabel, isWritebackCompatible, validateMalValueConversion,
   type DesignNode, type Variable,
 } from "@btstudio/bt-core";
 import { useWorkspaceStore } from "@/stores/workspace";
@@ -107,7 +107,7 @@ function bindMethod(methodName: string) {
     (f) => f.name === methodName && functionOwnerClass(f) === nodeClass.value,
   );
   const inputs = (fn?.params ?? []).filter((p) => p.direction !== "output").map((p) => ({
-    name: p.name, type: p.originalType ?? (p.malType ? malFzLabel(p.malType) : ""),
+    name: p.name, type: p.originalType ?? (p.malType ? malCyberLabel(p.malType) : ""),
     source: "constant" as const, value: p.defaultValue ?? "",
     displayType: p.displayType, malType: p.malType, valueFormat: p.valueFormat,
   }));
@@ -341,10 +341,10 @@ function setOutputVar(bindingIndex: number, variableId: string) {
     </div>
 
     <div v-if="isFnNode && node.inputBindings.length" class="bindings section">
-      <div class="sec-title muted-2">输入参数 <span class="hint">FZ 类型 · 常量 / 黑板</span></div>
+      <div class="sec-title muted-2">输入参数 <span class="hint">Cyber 类型 · 常量 / 黑板</span></div>
       <div v-for="(b, i) in node.inputBindings" :key="i" class="binding-row">
         <span class="bname">{{ b.name }}</span>
-        <span class="tag info" :title="b.malType">{{ malFzLabel(b.malType, b.displayType) }}</span>
+        <span class="tag info" :title="b.malType">{{ malCyberLabel(b.malType, b.displayType) }}</span>
         <select
           class="select tiny src"
           :value="b.source === 'blackboard' ? (b.variableId ?? '') : ''"
@@ -353,7 +353,7 @@ function setOutputVar(bindingIndex: number, variableId: string) {
           <option value="">直接输入</option>
           <optgroup v-for="g in blackboardGroups" :key="g.label" :label="g.label">
             <option v-for="v in g.variables" :key="v.variableId" :value="v.variableId">
-              ▣ {{ v.name }} ({{ malFzLabel(v.malType, v.displayType) }})
+              ▣ {{ v.name }} ({{ malCyberLabel(v.malType, v.displayType) }})
             </option>
           </optgroup>
         </select>
@@ -373,7 +373,7 @@ function setOutputVar(bindingIndex: number, variableId: string) {
       <div class="sec-title muted-2">输出参数 <span class="hint">回写黑板 · 不选则保留在原 MAL 数据</span></div>
       <div v-for="(b, i) in node.outputBindings" :key="i" class="binding-row">
         <span class="bname">{{ b.name }}</span>
-        <span class="tag warning" :title="b.malType">出 {{ malFzLabel(b.malType, b.displayType) }}</span>
+        <span class="tag warning" :title="b.malType">出 {{ malCyberLabel(b.malType, b.displayType) }}</span>
         <select
           class="select tiny src"
           :value="b.variableId ?? ''"
@@ -382,7 +382,7 @@ function setOutputVar(bindingIndex: number, variableId: string) {
           <option value="">— 不回写(留在 MAL) —</option>
           <optgroup v-for="g in candidatesForOutput(b.name)" :key="g.label" :label="g.label">
             <option v-for="v in g.variables" :key="v.variableId" :value="v.variableId">
-              ▣ {{ v.name }} ({{ malFzLabel(v.malType, v.displayType) }})
+              ▣ {{ v.name }} ({{ malCyberLabel(v.malType, v.displayType) }})
             </option>
           </optgroup>
         </select>

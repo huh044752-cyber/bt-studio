@@ -18,19 +18,23 @@ import { xmlEscape } from "./xmlSerializer.js";
 import { cyberTypeToOldEngine } from "../types/mal.js";
 import type { CyberMARGType } from "../types/mal.js";
 
-/** 老引擎类型转换(与 xmlSerializer.toOldType 同义,这里复制避免循环导出)。 */
+/**
+ * 老引擎类型转换(与 xmlSerializer.toOldType 同义)。
+ * canonical 源:packages/bt-core/src/export/xmlSerializer.ts::toOldType —— 修改时两处保持字节一致。
+ * (此处不直接 import 以避免 fsmXml <-> xmlSerializer 的循环导出。)
+ */
 function toOldType(t: string | undefined): string {
   if (!t) return "";
   if (t.startsWith("CYBER_MARGTYPE_") || t === "CYBER_USER_DEFINED") {
     return cyberTypeToOldEngine(t as CyberMARGType);
   }
   switch (t) {
-    case "Int": case "Integer": case "SpinBox": return "Integer";
-    case "Real": case "DoubleSpinBox": case "Float": case "float": return "Real";
-    case "Boolean": case "Bool": case "CheckBox": return "Boolean";
-    case "Julian": return "Julian";
-    case "String": case "Name": case "LineEditor": return "String";
-    case "Coordinate": case "Position": return "Coordinate";
+    case "Int": case "Integer": case "SpinBox": case "CyberIntegerType": return "Integer";
+    case "Real": case "DoubleSpinBox": case "Float": case "float": case "CyberRealType": return "Real";
+    case "Boolean": case "Bool": case "CheckBox": case "CyberBOOL": return "Boolean";
+    case "Julian": case "CyberJulianType": return "Julian";
+    case "String": case "Name": case "LineEditor": case "CyberStringType": case "CyberNameType": return "String";
+    case "Coordinate": case "Position": case "CyberCoordinateType": case "CyberPositionType": case "CyberVectorType": case "CyberOrientationType": return "Coordinate";
     default: return t;
   }
 }

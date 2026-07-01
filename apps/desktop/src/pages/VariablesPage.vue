@@ -42,8 +42,8 @@ function linkedTreesOf(bbId: string): string[] {
   return ws.trees.filter((t) => t.linkedGlobalBlackboardIds.includes(bbId)).map((t) => t.displayName);
 }
 const displayTypes: DisplayType[] = ["bool", "int", "float", "string", "name", "coordinate", "position", "vector", "unitId", "entityId"];
-/** 把 displayType 显示为 FZ 引擎类型(下拉与表头都用 FZ 习惯类型,而非裸 int/float)。 */
-function fzLabel(dt: DisplayType): string {
+/** 把 displayType 显示为 Cyber 引擎类型(下拉与表头都用 Cyber 习惯类型,而非裸 int/float)。 */
+function cyberLabel(dt: DisplayType): string {
   try {
     return malToXmlType(resolveMalType(dt));
   } catch {
@@ -186,15 +186,15 @@ function toggleLink(bbId: string) {
           </div>
           <table class="tbl">
             <thead>
-              <tr><th>变量名</th><th>类型 (FZ)</th><th>malType</th><th>默认值</th><th>校验</th></tr>
+              <tr><th>变量名</th><th>类型 (Cyber)</th><th>malType</th><th>默认值</th><th>校验</th></tr>
             </thead>
             <tbody>
               <tr v-for="v in current.variables" :key="v.variableId">
                 <td><input class="input tiny" v-model="v.name" /></td>
                 <td>
                   <select class="select tiny" :value="v.enumRef ? 'enum:' + v.enumRef : v.displayType" @change="onTypeChange(v.variableId, ($event.target as HTMLSelectElement).value)">
-                    <optgroup label="基础类型 (FZ)">
-                      <option v-for="dt in displayTypes" :key="dt" :value="dt">{{ fzLabel(dt) }}</option>
+                    <optgroup label="基础类型 (Cyber)">
+                      <option v-for="dt in displayTypes" :key="dt" :value="dt">{{ cyberLabel(dt) }}</option>
                     </optgroup>
                     <optgroup v-if="ws.enums.length" label="枚举(来自类型空间)">
                       <option v-for="e in ws.enums" :key="e.enumId" :value="'enum:' + e.name">enum:{{ e.name }}</option>

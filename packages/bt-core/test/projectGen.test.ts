@@ -41,7 +41,7 @@ describe("完整工程生成:依赖库 runtime + 类型实现 types", () => {
     const paths = files.map((f) => f.path);
 
     // ① 依赖库 runtime/
-    expect(paths).toContain("runtime/include/fosim/fz_types.h");
+    expect(paths).toContain("runtime/include/fosim/cyber_types.h");
     expect(paths).toContain("runtime/include/fosim/bt_runtime.h");
     expect(paths).toContain("runtime/src/bt_runtime.cpp");
     expect(paths).toContain("runtime/CMakeLists.txt");
@@ -59,8 +59,8 @@ describe("完整工程生成:依赖库 runtime + 类型实现 types", () => {
 
     // 类头
     const h = files.find((f) => f.path === "types/include/btproj/MyAgent.h")!.content;
-    expect(h).toContain("class MyAgent : public FZDecisionAgentBase");
-    expect(h).toContain("CyberDFMPFRC DoThing(FZMalImpl* in_mal, FZMalImpl* out_mal)");
+    expect(h).toContain("class MyAgent : public CyberDecisionAgentBase");
+    expect(h).toContain("CyberDFMPFRC DoThing(CyberMalImpl* in_mal, CyberMalImpl* out_mal)");
     expect(h).toContain("RegisterFunctions");
 
     // 类实现:注册 + 真实方法体(读 in_mal / 写 out_mal)
@@ -70,10 +70,10 @@ describe("完整工程生成:依赖库 runtime + 类型实现 types", () => {
     expect(cpp).toContain('in_mal->GetInteger("TARGET_ID")'); // 输入参数读取
     expect(cpp).toContain('out_mal->AddReal("RESULT", RESULT)'); // 输出参数写回
     expect(cpp).toContain("BEGIN WRITING YOUR CODE DoThing"); // 保留区
-    expect(cpp).toContain("return FZ_DFMPFRC_SINGLE;");
+    expect(cpp).toContain("return CYBER_DFMPFRC_SINGLE;");
 
     // 依赖库:MAL 完整 Get/Add API + 注册类型
-    const fz = files.find((f) => f.path === "runtime/include/fosim/fz_types.h")!.content;
+    const fz = files.find((f) => f.path === "runtime/include/fosim/cyber_types.h")!.content;
     expect(fz).toContain("enum CyberDFMPFRC");
     expect(fz).toContain("ProcessDecisionFunctionPtr");
     expect(fz).toContain("GetInteger");
@@ -108,7 +108,7 @@ describe("完整工程生成:依赖库 runtime + 类型实现 types", () => {
     for (const f of files) expect(f.content).not.toContain("F:/FOSim");
 
     // 关键编译修复:决策函数指针用未定义类(最通用成员函数指针表示,避免 MSVC C4407)
-    const fz0 = files.find((f) => f.path === "runtime/include/fosim/fz_types.h")!.content;
+    const fz0 = files.find((f) => f.path === "runtime/include/fosim/cyber_types.h")!.content;
     expect(fz0).toContain("class __UnexistingClass;");
     expect(fz0).toContain("__UnexistingClass::*ProcessDecisionFunctionPtr");
   });
@@ -166,7 +166,7 @@ describe("完整工程生成:依赖库 runtime + 类型实现 types", () => {
         ],
       },
       globalBlackboards: [], enums: [], structs: [], types: [],
-      classes: [{ classId: "c2", className: "FZAirFighter", displayName: "战机", category: "RuleDecision", hostModule: "", source: "model", baseClass: "FZCognitionImpl" }],
+      classes: [{ classId: "c2", className: "FZAirFighter", displayName: "战机", category: "RuleDecision", hostModule: "", source: "model", baseClass: "CyberCognitionImpl" }],
       members: [],
     };
     const files = generateProject({ workspaceName: "demo", namespace: "btproj", catalog: cat, behaviors: [{ name: "t", xml: "<Root id=\"1\"/>" }] });
@@ -177,6 +177,6 @@ describe("完整工程生成:依赖库 runtime + 类型实现 types", () => {
     expect(cpp).toContain('RegisterDecisionFunction("ENGAGE", "Engage"');
     expect(cpp).toContain('in_mal->GetInteger("TARGET_ID")');
     const h = files.find((f) => f.path === "types/include/btproj/FZAirFighter.h")!.content;
-    expect(h).toContain("class FZAirFighter : public FZDecisionAgentBase");
+    expect(h).toContain("class FZAirFighter : public CyberDecisionAgentBase");
   });
 });

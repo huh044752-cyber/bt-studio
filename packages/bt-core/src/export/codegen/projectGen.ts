@@ -8,7 +8,7 @@
  *
  *  app/main.cpp 把两者组合:① 加载 XML ② 绑定函数地址 ③ 外部驱动 Tick。
  *
- * 参考:F:\FOSim\FOSimEngine\src\modules\extern(BT/FSM 运行时)、core/mal(FZMalImpl 的 Get/Add API)、
+ * 参考:F:\FOSim\FOSimEngine\src\modules\extern(BT/FSM 运行时)、core/mal(CyberMalImpl 的 Get/Add API)、
  *      models/mount_model(RegisterDecisionFunction / DecisionFunctionInitialParameter / ProcessDecisionFunctionPtr)。
  */
 import type { CatalogBundle, FunctionParam } from "../../types/catalog.js";
@@ -40,7 +40,7 @@ function cppMemberType(t: string): string {
 /** 参数运行类型(优先 originalType,否则按 malType 反推 Cyber 串)。 */
 function paramCyber(p: FunctionParam): string {
   if (p.originalType && (p.originalType.startsWith("Cyber") || p.originalType.startsWith("FZ"))) {
-    // 兼容遗留 FZ* 串
+    // 兼容导入的遗留 FZ* 输入串(用户可能有从新引擎导出的旧模型数据),归一到 Cyber* 后再走匹配
     return p.originalType.replace(/^FZ/, "Cyber");
   }
   const m = (p.malType ?? "").toUpperCase();
@@ -57,8 +57,8 @@ function paramCyber(p: FunctionParam): string {
 }
 
 function baseOf(_catalog: CatalogBundle, _className: string): string {
-  // 生成代码统一直接继承 FZDecisionAgentBase(无业务/实体的纯函数地址绑定基类)。
-  return "FZDecisionAgentBase";
+  // 生成代码统一直接继承 CyberDecisionAgentBase(无业务/实体的纯函数地址绑定基类)。
+  return "CyberDecisionAgentBase";
 }
 
 /** 输入参数:从 in_mal 读取的声明语句(对齐引擎 CyberMalImpl::Get* API)。 */
@@ -110,9 +110,9 @@ function writeOutput(p: FunctionParam): string {
 
 // ============ ① 依赖库 runtime/ ============
 
-/** runtime:FZ 决策类型 + MAL(Get/Add 完整 API,对齐引擎 fz_mal_impl.h)。自包含可独立编译。 */
-function fzTypesHeader(_catalog: CatalogBundle): string {
-  return `// 由 BT Studio 生成 —— 依赖库:FZ 决策类型 + MAL(对齐 FOSim 引擎 core/mal,无业务/实体)。
+/** runtime:Cyber 决策类型 + MAL(Get/Add 完整 API,对齐老引擎 cyber_enum_type.h + cyber_mal_impl.h)。自包含可独立编译。 */
+function cyberTypesHeader(_catalog: CatalogBundle): string {
+  return `// 由 BT Studio 生成 —— 依赖库:Cyber 决策类型 + MAL(对齐 FOSim 老引擎 core/mal,无业务/实体)。
 // 接入真实引擎时,本文件由引擎 core/mal/fz_mal_impl.h 等替换,生成代码的 Get*/Add* 调用保持兼容。
 #pragma once
 #ifdef _MSC_VER
@@ -126,9 +126,9 @@ function fzTypesHeader(_catalog: CatalogBundle): string {
 #include <cstring>
 
 // 决策函数返回值(对齐 FOSim CyberDFMPFRC)。
-enum CyberDFMPFRC { FZ_DFMPFRC_UNKNOWN = 0, FZ_DFMPFRC_CONTINUOUS = 1, FZ_DFMPFRC_SINGLE = 2, FZ_DFMPFRC_ERROR = 3 };
+enum CyberDFMPFRC { CYBER_DFMPFRC_UNKNOWN = 0, CYBER_DFMPFRC_CONTINUOUS = 1, CYBER_DFMPFRC_SINGLE = 2, CYBER_DFMPFRC_ERROR = 3 };
 
-// FZ 基础类型别名(对齐引擎命名)。
+// Cyber 基础类型别名(对齐引擎命名)。
 typedef long CyberIntegerType;
 typedef double CyberRealType;
 typedef bool CyberBOOL;
@@ -139,10 +139,10 @@ struct CyberPositionType { double x = 0, y = 0, z = 0; };
 struct CyberCoordinateType { double longitude = 0, latitude = 0, altitude = 0; };
 struct CyberOrientationType { double yaw = 0, pitch = 0, roll = 0; };
 
-// MAL(方法参数列表):按名读写。Get* 数值/坐标为值返回式(对齐引擎 T Get<Type>(name, FZRC*=nullptr))。
-class FZMalImpl {
+// MAL(方法参数列表):按名读写。Get* 数值/坐标为值返回式(对齐引擎 T Get<Type>(name, CyberRC*=nullptr))。
+class CyberMalImpl {
 public:
-    static FZMalImpl* CreateMAL() { return new FZMalImpl(); }
+    static CyberMalImpl* CreateMAL() { return new CyberMalImpl(); }
 
     CyberIntegerType GetInteger(const char* n, void* = nullptr) const { auto it = ints_.find(n); return it == ints_.end() ? 0 : it->second; }
     CyberRealType GetReal(const char* n, void* = nullptr) const { auto it = reals_.find(n); return it == reals_.end() ? 0.0 : it->second; }
@@ -179,10 +179,10 @@ private:
 
 // 决策函数指针(对齐引擎 fz_struct_record.h):用【未定义类】__UnexistingClass 形成指向成员函数的指针,
 // 迫使编译器采用"最通用的成员函数指针表示",于是任意 Agent 派生类的 &Derived::Method 都能安全 (cast) 绑定。
-// 若改用已定义的单继承基类(如 FZDecisionAgentBase),MSVC 会采用紧凑表示,
+// 若改用已定义的单继承基类(如 CyberDecisionAgentBase),MSVC 会采用紧凑表示,
 // (ProcessDecisionFunctionPtr)&Derived::Method 触发 C4407 / 截断,导致编译不过。
 class __UnexistingClass;
-typedef CyberDFMPFRC (__UnexistingClass::*ProcessDecisionFunctionPtr)(FZMalImpl*, FZMalImpl*);
+typedef CyberDFMPFRC (__UnexistingClass::*ProcessDecisionFunctionPtr)(CyberMalImpl*, CyberMalImpl*);
 
 // 注册参数(对齐引擎 DecisionFunctionInitialParameter)。
 struct DecisionFunctionInitialParameter {
@@ -190,15 +190,15 @@ struct DecisionFunctionInitialParameter {
     CyberRealType delay_time_delta_ = 0.0;
     CyberRealType repeat_time_ = 0.0;
     CyberRealType repeat_time_delta_ = 0.0;
-    FZMalImpl* mal_ = nullptr;
+    CyberMalImpl* mal_ = nullptr;
     ProcessDecisionFunctionPtr function_ptr_ = nullptr;
 };
 
 // 决策 Agent 基类:函数地址绑定(name/CMD -> 函数指针)。无业务/实体。
-class FZDecisionAgentBase {
+class CyberDecisionAgentBase {
 public:
-    FZDecisionAgentBase() = default;
-    virtual ~FZDecisionAgentBase() = default;
+    CyberDecisionAgentBase() = default;
+    virtual ~CyberDecisionAgentBase() = default;
     void RegisterDecisionFunction(const std::string& cmd, const std::string& name, DecisionFunctionInitialParameter* p) {
         functions_[name] = p;
         cmd_to_name_[cmd] = name;
@@ -481,18 +481,18 @@ function userAgentHeader(ns: string, className: string, catalog: CatalogBundle):
   const cls = catalog.classes.find((c) => c.className === className);
   const methods = catalog.functionCatalog.functions.filter((f) => functionOwnerClass(f) === className);
   const members = catalog.members.filter((m) => cls && m.ownerClassId === cls.classId);
-  // 生成代码统一直接继承 FZDecisionAgentBase(无业务/实体的纯函数地址绑定基类)。
-  // 类型空间里填的 baseClass(FZPlatformImpl/FZAgentImpl 等业务标签)在自包含工程里
-  // 都是 FZDecisionAgentBase 的空壳别名,直接继承基类更直白也避免 IDE 语义混淆;
+  // 生成代码统一直接继承 CyberDecisionAgentBase(无业务/实体的纯函数地址绑定基类)。
+  // 类型空间里填的 baseClass(CyberPlatformImpl/CyberAgentImpl 等业务标签)在自包含工程里
+  // 都是 CyberDecisionAgentBase 的空壳别名,直接继承基类更直白也避免 IDE 语义混淆;
   // 接真实引擎时由用户决定真实层级,本生成器不预设。
   const lines: string[] = [];
-  lines.push(`// 由 BT Studio 生成 —— 类型实现:Agent 类 ${className}(继承 FZDecisionAgentBase)。`);
-  lines.push(`// 决策方法签名 CyberDFMPFRC(FZMalImpl* in_mal, FZMalImpl* out_mal);注册见 .cpp 的 RegisterFunctions。`);
+  lines.push(`// 由 BT Studio 生成 —— 类型实现:Agent 类 ${className}(继承 CyberDecisionAgentBase)。`);
+  lines.push(`// 决策方法签名 CyberDFMPFRC(CyberMalImpl* in_mal, CyberMalImpl* out_mal);注册见 .cpp 的 RegisterFunctions。`);
   lines.push("#pragma once");
-  lines.push('#include "fosim/fz_types.h"');
+  lines.push('#include "fosim/cyber_types.h"');
   lines.push(`#include "${ns}/types.h"`);
   lines.push("");
-  lines.push(`class ${className} : public FZDecisionAgentBase`);
+  lines.push(`class ${className} : public CyberDecisionAgentBase`);
   lines.push("{");
   lines.push("public:");
   lines.push(`    ${className}() = default;`);
@@ -513,7 +513,7 @@ function userAgentHeader(ns: string, className: string, catalog: CatalogBundle):
   lines.push("    // 决策/条件方法(返回 CyberDFMPFRC):");
   for (const fn of methods) {
     const sig = fn.params.map((p) => `${p.name}:${paramCyber(p)}${p.direction === "output" ? "(out)" : ""}`).join(", ");
-    lines.push(`    CyberDFMPFRC ${fn.name}(FZMalImpl* in_mal, FZMalImpl* out_mal); // ${sig || "无参数"}`);
+    lines.push(`    CyberDFMPFRC ${fn.name}(CyberMalImpl* in_mal, CyberMalImpl* out_mal); // ${sig || "无参数"}`);
   }
   lines.push("");
   lines.push("    ///<<< BEGIN WRITING YOUR CODE CLASS_MEMBERS");
@@ -541,7 +541,7 @@ function userAgentCpp(ns: string, className: string, catalog: CatalogBundle): st
     lines.push(`    ${fn.name}Decision->delay_time_delta_ = ${v(fn.delayDelta, 0)};`);
     lines.push(`    ${fn.name}Decision->repeat_time_ = ${v(fn.repeat, 0.1)};`);
     lines.push(`    ${fn.name}Decision->repeat_time_delta_ = ${v(fn.repeatDelta, 0)};`);
-    lines.push(`    ${fn.name}Decision->mal_ = FZMalImpl::CreateMAL();`);
+    lines.push(`    ${fn.name}Decision->mal_ = CyberMalImpl::CreateMAL();`);
     lines.push(`    RegisterDecisionFunction("${cmd}", "${fn.name}", ${fn.name}Decision);`);
     lines.push("");
   }
@@ -552,7 +552,7 @@ function userAgentCpp(ns: string, className: string, catalog: CatalogBundle): st
     const inputs = fn.params.filter((p) => p.direction !== "output");
     const outputs = fn.params.filter((p) => p.direction === "output");
     lines.push(`// ${fn.displayName || fn.name}${fn.description ? " —— " + fn.description : ""}`);
-    lines.push(`CyberDFMPFRC ${className}::${fn.name}(FZMalImpl* in_mal, FZMalImpl* out_mal)`);
+    lines.push(`CyberDFMPFRC ${className}::${fn.name}(CyberMalImpl* in_mal, CyberMalImpl* out_mal)`);
     lines.push("{");
     if (inputs.length) {
       lines.push("    // ---- 输入参数(从 in_mal 读取)----");
@@ -569,7 +569,7 @@ function userAgentCpp(ns: string, className: string, catalog: CatalogBundle): st
     lines.push("    ///<<< END WRITING YOUR CODE");
     lines.push("");
     for (const p of outputs) lines.push(writeOutput(p));
-    lines.push("    return FZ_DFMPFRC_SINGLE;");
+    lines.push("    return CYBER_DFMPFRC_SINGLE;");
     lines.push("}");
     lines.push("");
   }
@@ -699,7 +699,7 @@ function readme(input: ProjectGenInput, ns: string): string {
 
 ## ① 依赖库 \`runtime/\`(fosim_bt_runtime)
 行为树/状态机的【解析 + 映射 + 调度】+ MAL(对齐引擎 \`modules/extern\` 与 \`core/mal\`)。
-- \`runtime/include/fosim/fz_types.h\` — FZ 决策类型 + \`FZMalImpl\`(Get*/Add* 完整 API)+ 注册参数 + 函数指针。
+- \`runtime/include/fosim/cyber_types.h\` — Cyber 决策类型 + \`CyberMalImpl\`(Get*/Add* 完整 API)+ 注册参数 + 函数指针。
 - \`runtime/include/fosim/bt_runtime.h\` + \`runtime/src/bt_runtime.cpp\` — 解析 \`BTXmlLoader\` + 调度 \`TreeTask\`。
 - 配置「引擎源码目录」生成时,会把**真实引擎的 modules/extern 头文件 + MAL + loader 源码拷贝进此目录**(不魔改)。
 
@@ -726,7 +726,7 @@ function readme(input: ProjectGenInput, ns: string): string {
 
 > 接真实引擎时:把引擎 \`modules/extern\` + \`core/mal\` + \`pugi\` 源码拷到 \`engine-core/\` 目录,
 > 在顶层 CMakeLists.txt 解开 \`add_subdirectory(engine-core)\` 注释,并通过
-> \`-D ENGINE_EXTRA_INCLUDE=<引擎 include 根>\` 让 \`bt_runtime.cpp\` 能解析业务头(FZSimIO/models/*)。
+> \`-D ENGINE_EXTRA_INCLUDE=<引擎 include 根>\` 让 \`bt_runtime.cpp\` 能解析业务头(CyberSimIO/models/*)。
 > 默认生成的 \`runtime/\` 已是可独立编译的等价骨架,不依赖任何引擎业务头。
 
 ## 构建 / 运行
@@ -754,7 +754,7 @@ export function generateProject(input: ProjectGenInput): CppFile[] {
   const userClassNames = userClasses.map((c) => c.className);
 
   // ① 依赖库 runtime/(BT + FSM 解析/调度 + MAL)
-  files.push({ path: "runtime/include/fosim/fz_types.h", content: fzTypesHeader(input.catalog) });
+  files.push({ path: "runtime/include/fosim/cyber_types.h", content: cyberTypesHeader(input.catalog) });
   files.push({ path: "runtime/include/fosim/bt_runtime.h", content: btRuntimeHeader() });
   files.push({ path: "runtime/src/bt_runtime.cpp", content: btRuntimeCpp() });
   files.push({ path: "runtime/include/fosim/fsm_runtime.h", content: fsmRuntimeHeader() });

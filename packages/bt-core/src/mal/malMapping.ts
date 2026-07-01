@@ -112,7 +112,7 @@ export function malTypeDefaultValue(malType: CyberMARGType | undefined): string 
  * 类型的 Cyber 友好标签:绑定面板里显示「Cyber 类型名」而非内部枚举 CYBER_MARGTYPE_*。
  * 例:CYBER_MARGTYPE_INTEGER -> "CyberIntegerType"。无映射时回退到 displayType,再回退枚举名。
  */
-export function malFzLabel(
+export function malCyberLabel(
   malType: CyberMARGType | undefined,
   displayType?: DisplayType,
 ): string {

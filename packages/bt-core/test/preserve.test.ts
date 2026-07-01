@@ -3,26 +3,26 @@ import { mergePreservedRegions, hasPreservedRegions } from "../src/index.js";
 
 describe("保留区合并(重新导出不覆盖 <<<BEGIN 内手写代码)", () => {
   const oldCode = [
-    "CyberDFMPFRC MyAgent::Engage(FZMalImpl* in_mal, FZMalImpl* out_mal)",
+    "CyberDFMPFRC MyAgent::Engage(CyberMalImpl* in_mal, CyberMalImpl* out_mal)",
     "{",
     "    CyberIntegerType TARGET_ID = in_mal->GetInteger(\"TARGET_ID\");",
     "    ///<<< BEGIN WRITING YOUR CODE Engage",
     "    // 用户手写:发起交战",
     "    fire(TARGET_ID);",
     "    ///<<< END WRITING YOUR CODE",
-    "    return FZ_DFMPFRC_SINGLE;",
+    "    return CYBER_DFMPFRC_SINGLE;",
     "}",
   ].join("\n");
 
   const newCode = [
-    "CyberDFMPFRC MyAgent::Engage(FZMalImpl* in_mal, FZMalImpl* out_mal)",
+    "CyberDFMPFRC MyAgent::Engage(CyberMalImpl* in_mal, CyberMalImpl* out_mal)",
     "{",
     "    CyberIntegerType TARGET_ID = in_mal->GetInteger(\"TARGET_ID\");",
     "    CyberRealType RANGE = in_mal->GetReal(\"RANGE\");", // 新增参数(应保留新签名)
     "    ///<<< BEGIN WRITING YOUR CODE Engage",
     "    // TODO: 在此实现决策逻辑",
     "    ///<<< END WRITING YOUR CODE",
-    "    return FZ_DFMPFRC_SINGLE;",
+    "    return CYBER_DFMPFRC_SINGLE;",
     "}",
   ].join("\n");
 
