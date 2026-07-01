@@ -192,7 +192,8 @@ export function importXmlToDesignTree(
           node.inputBindings.push({
             name: ia["name"] ?? "",
             type: ia["type"] ?? "",
-            source: (ia["source"] ?? "").toLowerCase() === "blackboard" ? "blackboard" : "constant",
+            // 三态 source(老引擎 backport 后 loader 接受 blackboard/local/global);全部映射到编辑器 "blackboard"。
+            source: (["blackboard", "local", "global"].includes((ia["source"] ?? "").toLowerCase())) ? "blackboard" : "constant",
             value: ia["value"],
             blackboardId: ia["blackboardKey"],
             variableId: ia["variableKey"],

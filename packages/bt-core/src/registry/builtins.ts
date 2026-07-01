@@ -241,7 +241,8 @@ function builtins(): NodeDefinition[] {
   };
 
   list.push(decorator("Loop", "Loop", "DecoratorLoop", "循环", [COUNT_PROP]));
-  list.push(decorator("Invert", "Invert", "Invert", "反相"));
+  // 新引擎 bt_xml_loader (e5b8d8d1) 只识别 <Not>,老引擎 backport 后同一收口 → xmlElement = "Not"。
+  list.push(decorator("Invert", "Invert", "Not", "反相"));
   list.push(
     decorator("SuccessUntil", "SuccessUntil", "DecoratorSuccessUntil", "成功直到", [COUNT_PROP]),
   );

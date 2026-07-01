@@ -42,9 +42,11 @@ describe("导入/导出往返(文档 §9 / §16.2)", () => {
     expect(action!.inputBindings[0]?.source).toBe("blackboard");
     expect(action!.inputBindings[0]?.variableId).toBe("bb_duration");
 
-    // 全局黑板恢复
-    expect(imported.globalBlackboards.length).toBe(1);
-    expect(imported.globalBlackboards[0]?.variables[0]?.name).toBe("duration");
+    // 全局黑板已迁到 scenario 层 global_black_boards.xml,BT XML 里 <Blackboards> 只剩 local。
+    // 单文件 importRuntimeXml 只能恢复 local BB。
+    expect(imported.globalBlackboards.length).toBe(0);
+    expect(res.artifacts!.globalBlackboardsXml).toContain('key="duration"');
+    expect(res.artifacts!.globalBlackboardsXml).toContain('id="nd_global"');
   });
 
   it("未知节点类型导入为受限节点并进入映射修复", () => {

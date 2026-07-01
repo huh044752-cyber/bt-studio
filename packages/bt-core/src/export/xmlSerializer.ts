@@ -76,7 +76,18 @@ function pad(level: number): string {
 
 const FUNCTION_ELEMENTS = new Set(["Action", "Condition", "ConditionTransform"]);
 
-function serializeNode(node: BTNodeDef, level: number): string {
+/**
+ * 绑定 scope 解析:根据 blackboardId 在 def.blackboards 里查所属 <Blackboard scope>。
+ * - 命中 Global → "global"(老引擎 loader:resolve 到 scenario 层 GlobalBlackboards store)
+ * - 命中 Local / 未命中 → "local"(老引擎 loader:resolve 到 BT 局部 store)
+ * 对齐 F:\0411\ccc\FOSimEngine\src\modules\extern\bt_xml_loader.cpp 三态 source
+ * (backport 自新引擎 c4095297)。
+ */
+function scopeSourceOf(blackboardId: string, scopeByBoardId: Map<string, string>): "local" | "global" {
+  return scopeByBoardId.get(blackboardId) === "Global" ? "global" : "local";
+}
+
+function serializeNode(node: BTNodeDef, level: number, scopeByBoardId: Map<string, string>): string {
   const el = node.xmlType || node.kind;
   const lines: string[] = [];
   let open = `${pad(level)}<${el}${attr("id", node.id)}${attr("name", node.name)}`;
@@ -132,7 +143,9 @@ function serializeNode(node: BTNodeDef, level: number): string {
     for (const inp of node.inputs) {
       let line = `${pad(level + 2)}<Input${attr("name", inp.name)}${attr("type", mapVariableType(inp.type))}`;
       if (inp.source === "Blackboard") {
-        line += ` source="blackboard"${attr("blackboardKey", inp.blackboardId)}${attr("variableKey", inp.variableId)}`;
+        // 三态 source(老引擎 backport 后 loader 接受 blackboard/local/global):按黑板 scope 决定。
+        const src = scopeSourceOf(inp.blackboardId, scopeByBoardId);
+        line += ` source="${src}"${attr("blackboardKey", inp.blackboardId)}${attr("variableKey", inp.variableId)}`;
       } else {
         line += attr("value", inp.value);
       }
@@ -144,8 +157,9 @@ function serializeNode(node: BTNodeDef, level: number): string {
   if (node.outputs.length) {
     inner.push(`${pad(level + 1)}<Outputs>`);
     for (const out of node.outputs) {
+      const src = scopeSourceOf(out.blackboardId, scopeByBoardId);
       inner.push(
-        `${pad(level + 2)}<Output${attr("name", out.name)}${attr("blackboardKey", out.blackboardId)}${attr("variableKey", out.variableId)} />`,
+        `${pad(level + 2)}<Output${attr("name", out.name)} source="${src}"${attr("blackboardKey", out.blackboardId)}${attr("variableKey", out.variableId)} />`,
       );
     }
     inner.push(`${pad(level + 1)}</Outputs>`);
@@ -156,7 +170,7 @@ function serializeNode(node: BTNodeDef, level: number): string {
     );
   }
   for (const child of node.children) {
-    inner.push(serializeNode(child, level + 1));
+    inner.push(serializeNode(child, level + 1, scopeByBoardId));
   }
 
   if (inner.length === 0) {
@@ -169,12 +183,17 @@ function serializeNode(node: BTNodeDef, level: number): string {
   return lines.join("\n");
 }
 
+/**
+ * BT <Root> 内 <Blackboards> 只放 Local scope。
+ * Global scope 归 scenario 层 ModelDatabase/global_black_boards.xml,
+ * 老引擎 BTXmlLoader::SetGlobalBlackboards(...) 接收注入。
+ */
 function serializeBlackboards(blackboards: BlackboardDef[], level: number): string {
-  if (blackboards.length === 0) return `${pad(level)}<Blackboards />`;
+  const locals = blackboards.filter((bb) => bb.scope !== "Global");
+  if (locals.length === 0) return `${pad(level)}<Blackboards />`;
   const lines: string[] = [`${pad(level)}<Blackboards>`];
-  for (const bb of blackboards) {
-    const scope = bb.scope === "Global" ? "global" : "local";
-    const head = `${pad(level + 1)}<Blackboard${attr("linked", bb.linked ? "true" : "")}${attr("scope", scope)}${attr("name", bb.name)}${attr("id", bb.id)}`;
+  for (const bb of locals) {
+    const head = `${pad(level + 1)}<Blackboard${attr("linked", bb.linked ? "true" : "")} scope="local"${attr("name", bb.name)}${attr("id", bb.id)}`;
     const vars = Object.values(bb.variables);
     if (vars.length === 0) {
       lines.push(`${head} />`);
@@ -190,6 +209,32 @@ function serializeBlackboards(blackboards: BlackboardDef[], level: number): stri
   }
   lines.push(`${pad(level)}</Blackboards>`);
   return lines.join("\n");
+}
+
+/**
+ * scenario 层全局黑板独立 XML(ModelDatabase/global_black_boards.xml)。
+ * 老引擎 backport(BT::LoadBlackboardsFromXmlContent + SetGlobalBlackboards)后读取此文件。
+ */
+export function serializeGlobalBlackboardsXml(blackboards: BlackboardDef[]): string {
+  const globals = blackboards.filter((bb) => bb.scope === "Global");
+  const lines: string[] = [XML_HEADER, "<Blackboards>"];
+  for (const bb of globals) {
+    const head = `  <Blackboard${attr("name", bb.name)}${attr("id", bb.id)}`;
+    const vars = Object.values(bb.variables);
+    if (vars.length === 0) {
+      lines.push(`${head} />`);
+      continue;
+    }
+    lines.push(`${head}>`);
+    for (const v of vars) {
+      lines.push(
+        `    <Variable${attr("key", v.key)}${attr("id", v.id)}${attr("type", mapVariableType(v.type))}${attr("value", v.value)} />`,
+      );
+    }
+    lines.push("  </Blackboard>");
+  }
+  lines.push("</Blackboards>");
+  return lines.join("\n") + "\n";
 }
 
 export function serializeBehaviorTreeXml(def: BehaviorTreeDef): string {
@@ -215,7 +260,10 @@ export function serializeBehaviorTreeXml(def: BehaviorTreeDef): string {
     lines.push(`${pad(1)}</ReferencedBehaviorTrees>`);
   }
 
-  lines.push(serializeNode(def.root, 1));
+  // 构建 blackboardId → scope 索引,让 <Input>/<Output> 按绑定黑板 scope 输出 local/global。
+  const scopeByBoardId = new Map<string, string>();
+  for (const bb of def.blackboards) scopeByBoardId.set(bb.id, bb.scope);
+  lines.push(serializeNode(def.root, 1, scopeByBoardId));
   lines.push("</Root>");
   return lines.join("\n") + "\n";
 }

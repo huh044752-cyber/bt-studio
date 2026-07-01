@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseScenarioUnits, attachTreeToScenario, validateTreeForUnit, attachOldScenario } from "../src/index.js";
+import { parseScenarioUnits, attachTreeToScenario, validateTreeForUnit, attachOldScenario, validateOldMountAgainstUnit } from "../src/index.js";
 
 const SDATA = `<?xml version="1.0" encoding="utf-8"?>
 <Scenario>
@@ -122,6 +122,51 @@ describe("场景 .sdata 解析与挂接(R4)", () => {
     // 不存在的 Unit
     const miss = attachOldScenario(oldSdata, "无此实体", "x", "overwrite");
     expect(miss.ok).toBe(false);
+  });
+
+  it("validateOldMountAgainstUnit:BT <Root cognition> ↔ Unit &lt;ModelData&gt; 认知组件 三边一致", () => {
+    // 老 .sdata:歼-10 上挂了 BTAirToMCog 认知组件(uuid=1)。
+    const sd = `<?xml version="1.0"?>
+<Scenario>
+  <Units>
+    <Unit>
+      <ObjectHandle>1</ObjectHandle>
+      <Name>歼-10</Name>
+      <ModelData>
+        <机型>
+          <BTAirToMCog uuid="cog-1" type="Cognition"/>
+          <FzFixedWing uuid="fw-1" type="平台"/>
+        </机型>
+      </ModelData>
+    </Unit>
+  </Units>
+</Scenario>`;
+    const unit = parseScenarioUnits(sd)[0]!;
+    // 正例:BT 声明 cognition="BTAirToMCog",Unit 恰有这个组件 → matched
+    const goodBt = `<?xml version='1.0'?>
+<Root id="1" projectType="行为树" name="air_to_m" cognition="BTAirToMCog">
+  <Action id="2" name="a" function="Fire" />
+</Root>`;
+    const tree = { nodes: { n1: { nodeId: "n1", nodeType: "Action", name: "开火", functionRef: "Fire", targetSelector: { modelClass: "BTAirToMCog" } } } };
+    const fns = [{ name: "Fire", ownerClass: "BTAirToMCog", bindingTarget: "BTAirToMCog.Fire" }];
+    const good = validateOldMountAgainstUnit(goodBt, unit, tree, fns);
+    expect(good.ok).toBe(true);
+    expect(good.cognition).toBe("BTAirToMCog");
+    expect(good.cognitionMatched).toBe(true);
+    expect(good.treeValidation.errorCount).toBe(0);
+
+    // 反例:cognition 声明不存在 → 未匹配
+    const badBt = goodBt.replace('cognition="BTAirToMCog"', 'cognition="NotThere"');
+    const bad = validateOldMountAgainstUnit(badBt, unit, tree, fns);
+    expect(bad.ok).toBe(false);
+    expect(bad.cognitionMatched).toBe(false);
+    expect(bad.cognitionReason).toContain("无 className");
+
+    // 缺省 cognition:老引擎自动按树名兜底,视作允许
+    const noCogBt = goodBt.replace(' cognition="BTAirToMCog"', '');
+    const nc = validateOldMountAgainstUnit(noCogBt, unit, tree, fns);
+    expect(nc.cognition).toBe("");
+    expect(nc.cognitionMatched).toBe(true);
   });
 
   it("同名实例:reject 拒绝,overwrite 替换", () => {

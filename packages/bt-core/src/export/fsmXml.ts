@@ -63,16 +63,22 @@ function targetAttrs(n: DesignNode): string {
   );
 }
 
+/** FSM 版 scope 解析(与 xmlSerializer 一致)。 */
+function fsmScopeSourceOf(blackboardId: string, scopeByBoardId: Map<string, string>): "local" | "global" {
+  return scopeByBoardId.get(blackboardId) === "Global" ? "global" : "local";
+}
+
 /** <Inputs>/<Outputs> 块(与行为树一致)。返回缩进好的多行;空则返回 []。 */
-function ioBlocks(n: DesignNode, indent: string): string[] {
+function ioBlocks(n: DesignNode, indent: string, scopeByBoardId: Map<string, string>): string[] {
   const lines: string[] = [];
   if (n.inputBindings.length) {
     lines.push(`${indent}<Inputs>`);
     for (const b of n.inputBindings) {
       const type = toOldType(b.type || (b.malType ? malToXmlType(b.malType) : ""));
       if (b.source === "blackboard") {
+        const src = fsmScopeSourceOf(b.blackboardId ?? "", scopeByBoardId);
         lines.push(
-          `${indent}  <Input${attr("name", b.name)}${attr("type", type)} value="" source="blackboard"${attr("blackboardKey", b.blackboardId)}${attr("variableKey", b.variableId)} />`,
+          `${indent}  <Input${attr("name", b.name)}${attr("type", type)} value="" source="${src}"${attr("blackboardKey", b.blackboardId)}${attr("variableKey", b.variableId)} />`,
         );
       } else {
         lines.push(`${indent}  <Input${attr("name", b.name)}${attr("type", type)}${attr("value", b.value)} />`);
@@ -83,8 +89,9 @@ function ioBlocks(n: DesignNode, indent: string): string[] {
   if (n.outputBindings.length) {
     lines.push(`${indent}<Outputs>`);
     for (const b of n.outputBindings) {
+      const src = fsmScopeSourceOf(b.blackboardId ?? "", scopeByBoardId);
       lines.push(
-        `${indent}  <Output${attr("name", b.name)}${attr("blackboardKey", b.blackboardId)}${attr("variableKey", b.variableId)} />`,
+        `${indent}  <Output${attr("name", b.name)} source="${src}"${attr("blackboardKey", b.blackboardId)}${attr("variableKey", b.variableId)} />`,
       );
     }
     lines.push(`${indent}</Outputs>`);
@@ -92,7 +99,7 @@ function ioBlocks(n: DesignNode, indent: string): string[] {
   return lines;
 }
 
-export function serializeFsmXml(tree: DesignTree): string {
+export function serializeFsmXml(tree: DesignTree, scopeByBoardId: Map<string, string> = new Map()): string {
   const states = Object.values(tree.nodes).filter((n) => n.nodeType === "State");
   if (states.length === 0) throw new FsmExportError("状态机为空:至少需要一个 State 节点");
 
@@ -124,7 +131,7 @@ export function serializeFsmXml(tree: DesignTree): string {
       .map((c) => tree.nodes[c])
       .filter((c): c is DesignNode => !!c && TRANSITION_TYPES.has(c.nodeType));
 
-    const inner: string[] = [...ioBlocks(s, indent + "  ")];
+    const inner: string[] = [...ioBlocks(s, indent + "  ", scopeByBoardId)];
     for (const t of transitions) {
       const cls = t.nodeType === "StateTransition" ? "StateTransform" : "ConditionTransform";
       const tid = nextTransId++;
@@ -132,7 +139,7 @@ export function serializeFsmXml(tree: DesignTree): string {
       const thead =
         `${indent}  <${cls}${attr("id", tid)}${attr("name", t.name)}${attr("action", t.functionRef)}` +
         `${targetAttrs(t)}`;
-      const tInner: string[] = [...ioBlocks(t, indent + "    ")];
+      const tInner: string[] = [...ioBlocks(t, indent + "    ", scopeByBoardId)];
 
       // 目标:首次出现 → 嵌套完整 <State>;已出现 → <Goto id>。
       const targetNodeId =

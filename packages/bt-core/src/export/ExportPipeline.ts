@@ -9,7 +9,7 @@ import type { NodeRegistry } from "../registry/NodeRegistry.js";
 import { defaultRegistry } from "../registry/NodeRegistry.js";
 import { ValidationEngine } from "../validation/ValidationEngine.js";
 import { toBehaviorTreeDef, ExportError } from "./toBehaviorTreeDef.js";
-import { serializeBehaviorTreeXml } from "./xmlSerializer.js";
+import { serializeBehaviorTreeXml, serializeGlobalBlackboardsXml } from "./xmlSerializer.js";
 import { nowIso } from "../model/ids.js";
 
 export interface ExportInput {
@@ -23,6 +23,12 @@ export interface ExportArtifacts {
   xml: string;
   meta: string;
   bindingManifest: string;
+  /**
+   * scenario 层全局黑板 XML(对齐老引擎 backport 后的 ModelDatabase/global_black_boards.xml)。
+   * 老引擎在启动阶段用 BT::LoadBlackboardsFromXmlContent + BTXmlLoader::SetGlobalBlackboards 加载。
+   * BT 里 <Input source="global"> 通过 blackboardKey/variableKey 引用此表。
+   */
+  globalBlackboardsXml: string;
 }
 
 export interface ExportResult {
@@ -64,7 +70,8 @@ export class ExportPipeline {
       const xml = serializeBehaviorTreeXml(def);
       const meta = this.buildMeta(input.doc.tree);
       const bindingManifest = this.buildBindingManifest(input.doc.tree, input.catalogs);
-      return { ok: true, issues, artifacts: { xml, meta, bindingManifest } };
+      const globalBlackboardsXml = serializeGlobalBlackboardsXml(def.blackboards);
+      return { ok: true, issues, artifacts: { xml, meta, bindingManifest, globalBlackboardsXml } };
     } catch (err) {
       const msg = err instanceof ExportError ? err.message : String(err);
       return { ok: false, issues, error: msg };
@@ -75,7 +82,11 @@ export class ExportPipeline {
   exportRuntimeXml(input: ExportInput): ExportResult {
     const res = this.exportAll(input);
     if (!res.ok || !res.artifacts) return res;
-    return { ok: true, issues: res.issues, artifacts: { xml: res.artifacts.xml, meta: "", bindingManifest: "" } };
+    return {
+      ok: true,
+      issues: res.issues,
+      artifacts: { xml: res.artifacts.xml, meta: "", bindingManifest: "", globalBlackboardsXml: res.artifacts.globalBlackboardsXml },
+    };
   }
 
   /** *.bt.meta.json:UI 布局 / 注释 / 折叠等,不进运行 XML。 */

@@ -86,12 +86,15 @@ describe("Export Pipeline(文档 §16.2)", () => {
     const res = pipeline.exportAll({ doc: createDocument(bus.getTree()), blackboards: [bb] });
     expect(res.ok).toBe(true);
     const xml = res.artifacts!.xml;
-    expect(xml).toContain('source="blackboard"');
+    // 老引擎 backport 后 loader 三态 source(blackboard/local/global);makeBlackboard 是 global → "global"。
+    expect(xml).toContain('source="global"');
     expect(xml).toContain('blackboardKey="nd_global"');
     expect(xml).toContain('variableKey="bb_duration"');
     expect(xml).toContain("<Outputs>");
-    // 黑板段
-    expect(xml).toContain('scope="global"');
+    // 全局黑板已从 BT Root 内 <Blackboards> 迁出,改由 scenario 层 global_black_boards.xml。
+    expect(xml).not.toContain('scope="global"');
+    expect(res.artifacts!.globalBlackboardsXml).toContain('id="nd_global"');
+    expect(res.artifacts!.globalBlackboardsXml).toContain('key="duration"');
   });
 
   it("老引擎分支:<Blackboards>/<Variable type> 走 mapVariableType(短串)", () => {
@@ -117,9 +120,9 @@ describe("Export Pipeline(文档 §16.2)", () => {
     // 节点 <Input type> 短串
     expect(xml).toMatch(/<Input[^>]*type="Real"/);
     expect(xml).not.toMatch(/<Input[^>]*type="CyberRealType"/);
-    // 黑板 <Variable type> 也短串(与 Input 一致)
-    expect(xml).toMatch(/<Variable[^>]*type="Real"/);
-    expect(xml).not.toMatch(/<Variable[^>]*type="CyberRealType"/);
+    // 黑板 <Variable type> 也短串:global 黑板已迁到 globalBlackboardsXml,那份也走 mapVariableType 短串。
+    expect(res.artifacts!.globalBlackboardsXml).toMatch(/<Variable[^>]*type="Real"/);
+    expect(res.artifacts!.globalBlackboardsXml).not.toMatch(/<Variable[^>]*type="CyberRealType"/);
   });
 
   it("条件比较字段映射(comparetype=Output + Output op/value)", () => {

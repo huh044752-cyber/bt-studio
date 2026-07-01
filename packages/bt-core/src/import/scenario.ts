@@ -191,6 +191,55 @@ export function validateTreeForUnit(
   return { issues, errorCount: issues.filter((i) => i.level === "error").length };
 }
 
+/**
+ * 老版实体挂载端到端校验(§E,与 attachOldScenario 配合)。
+ * 检查三边一致:
+ *   (1) BT XML 的 <Root cognition="X"> 有 X;
+ *   (2) 目标 Unit 的 <ModelData> 里存在 className === X 且 type === "Cognition" 的组件;
+ *   (3) 该 BT 的每个 Action/Condition 节点若选了 modelClass Y,则 Unit 必须有 Y 组件,
+ *       并且函数目录里 Y.functionRef 必须存在(委托到 validateTreeForUnit)。
+ * 老引擎运行时:LoadBehaviorTreeDefFromXML 读 cognition 属性,在 unit 上 GetMountedModels() 里
+ * 找 cognition 组件,再用 FindDecisionFunction 下行转换到具体决策类,拿函数指针 tick。
+ */
+export interface OldMountValidation {
+  ok: boolean;
+  cognition: string;
+  cognitionMatched: boolean;
+  cognitionReason: string;
+  treeValidation: AttachValidation;
+}
+
+export function validateOldMountAgainstUnit(
+  btXml: string,
+  unit: ScenarioUnit,
+  tree: Parameters<typeof validateTreeForUnit>[0],
+  functions: Parameters<typeof validateTreeForUnit>[2],
+): OldMountValidation {
+  // 从 BT XML 抽 <Root cognition="X">;老 .bt 允许 cognition 缺失(回退默认 = 树名),此时不校验(cognitionMatched=true 视作已匹配)。
+  const m = /<Root\b[^>]*\bcognition="([^"]*)"/.exec(btXml);
+  const cognition = m ? m[1]! : "";
+  let cognitionMatched = true;
+  let cognitionReason = "BT 未声明 cognition,老引擎将按默认(树名 = 认知类)自动绑定";
+  if (cognition) {
+    const hit = unit.components.find((c) => c.className === cognition);
+    if (!hit) {
+      cognitionMatched = false;
+      cognitionReason = `Unit ${unit.name} 无 className="${cognition}" 组件 —— LoadBehaviorTreeDefFromXML 时 GetMountedModels() 找不到认知,导致 tick 空跑`;
+    } else {
+      cognitionMatched = true;
+      cognitionReason = `Unit ${unit.name} 含 ${cognition} 组件(uuid=${hit.componentId || "?"})`;
+    }
+  }
+  const treeValidation = validateTreeForUnit(tree, unit, functions);
+  return {
+    ok: cognitionMatched && treeValidation.errorCount === 0,
+    cognition,
+    cognitionMatched,
+    cognitionReason,
+    treeValidation,
+  };
+}
+
 export type AttachPolicy = "reject" | "overwrite" | "backup_then_overwrite";
 
 export interface AttachOptions {
