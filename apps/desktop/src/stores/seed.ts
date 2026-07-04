@@ -13,10 +13,11 @@ export function seedWorkspace(): void {
   if (ws.trees.length > 0) return;
 
   ws.functionCatalog.functions = sampleFunctions();
+  // baseClass 字段已弃用:生成代码统一直接继承 CyberDecisionAgentBase,不再展示业务基类前缀。
   ws.classes.push(
-    { classId: "cls_air", className: "CyberAirFighter", displayName: "战机 CyberAirFighter", category: "RuleDecision", hostModule: "air", source: "model", baseClass: "CyberCognitionImpl" },
-    { classId: "cls_jam", className: "CyberComRadioJam", displayName: "通信干扰 CyberComRadioJam", category: "Jammers", hostModule: "ew", source: "model", baseClass: "CyberJammerImpl" },
-    { classId: "cls_sensor", className: "CyberSensor", displayName: "传感器 CyberSensor", category: "Sensors", hostModule: "avionic", source: "model", baseClass: "CyberSensorImpl" },
+    { classId: "cls_air", className: "CyberAirFighter", displayName: "战机 CyberAirFighter", category: "RuleDecision", hostModule: "air", source: "model" },
+    { classId: "cls_jam", className: "CyberComRadioJam", displayName: "通信干扰 CyberComRadioJam", category: "Jammers", hostModule: "ew", source: "model" },
+    { classId: "cls_sensor", className: "CyberSensor", displayName: "传感器 CyberSensor", category: "Sensors", hostModule: "avionic", source: "model" },
   );
 
   const bb = createBlackboard("空战全局板", "global", { blackboardId: "nd_air_global" });

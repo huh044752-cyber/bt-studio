@@ -16,6 +16,10 @@ import {
   parseWorkspaceXml,
   parseCmpFiles,
   parseCmpMuiPairs,
+  deriveUnitTemplates,
+  filterClassesByTemplate,
+  filterFunctionsByTemplate,
+  type UnitTemplate,
   generateCpp,
   generateProject,
   toBehaviorTreeDef,
@@ -84,6 +88,9 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   const classes = ref<ClassDescriptor[]>([]);
   const members = ref<MemberDescriptor[]>([]);
   const structs = ref<StructDescriptor[]>([]);
+  // 从想定(.sdata) 派生的实体模板集合。Root 的 templateId 引用这里的 templateId。
+  // 由 ProjectWorkspacePage / ScenarioAttachPage 在扫想定后触发 setUnitTemplates 写入。
+  const unitTemplates = ref<UnitTemplate[]>([]);
 
   const currentTree = computed<DesignTree | undefined>(() => {
     void rev.value;
@@ -156,6 +163,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     types.value = [];
     modelRawClasses.value = [];
     modelRawFunctions.value = [];
+    unitTemplates.value = [];
     currentTreeId.value = "";
     selectedNodeId.value = "";
     issues.value = [];
@@ -196,6 +204,23 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     return true;
   }
 
+  /**
+   * 是否需要在该命令执行后立即触发校验。
+   * 校验时机策略(按用户要求):
+   *  - 拖拽/结构编辑(AddNode/Delete/Connect/Reorder/Move) → 不校验,避免刚拖上来就红字干扰
+   *  - 只有当节点的绑定态(类/函数/输入输出)发生变化时才校验
+   *  - 导出/代码生成前的闸门单独走 exportBlockers()/validateAll()
+   *  - 用户手动触发的"校验"按钮直接调 validate()/validateAll()
+   */
+  function needValidateAfter(cmd: GraphCommand): boolean {
+    if (cmd.kind === "BindFunction" || cmd.kind === "BindVariable") return true;
+    if (cmd.kind === "UpdateNodeProperty") {
+      const p = cmd.patch as Partial<{ functionRef: string; targetSelector: unknown; script: string; scriptRef: string }>;
+      return "functionRef" in p || "targetSelector" in p || "script" in p || "scriptRef" in p;
+    }
+    return false;
+  }
+
   function run(cmd: GraphCommand): CommandResult {
     const bus = currentBus.value;
     if (!bus) return { ok: false, reason: "无当前树", affectedNodeIds: [] };
@@ -206,7 +231,9 @@ export const useWorkspaceStore = defineStore("workspace", () => {
       selectedNodeId.value = res.createdNodeId;
     }
     bump();
-    validate();
+    // 仅在绑定态改变时才校验;其余命令不触发红字提示。用户可手动点击"校验",或导出前的
+    // exportBlockers() 会强制 validateAll()。
+    if (needValidateAfter(cmd)) validate();
     return res;
   }
 
@@ -657,6 +684,49 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   loadRecentFromStorage();
   watch(recentWorkspaces, saveRecentToStorage, { deep: true });
 
+  /** 覆写整份模板集合(扫想定后调用)。 */
+  function setUnitTemplates(list: UnitTemplate[]): void {
+    unitTemplates.value = list;
+  }
+  /** 扫多份 .sdata → 派生模板 → 写入 store。空数组不重置。 */
+  function ingestScenariosForTemplates(scenarios: { name: string; sdataXml: string }[]): number {
+    if (!scenarios.length) return 0;
+    const list = deriveUnitTemplates(scenarios);
+    unitTemplates.value = list;
+    return list.length;
+  }
+  /** 当前树绑定的模板(未选或不存在 → undefined)。 */
+  const currentTreeTemplate = computed<UnitTemplate | undefined>(() => {
+    void rev.value;
+    const t = currentTree.value;
+    if (!t?.templateId) return undefined;
+    return unitTemplates.value.find((tpl) => tpl.templateId === t.templateId);
+  });
+  /** 叶子节点下拉用的过滤后类目(未选模板 → 全量)。 */
+  const filteredClasses = computed<ClassDescriptor[]>(() => {
+    void rev.value;
+    return filterClassesByTemplate(classes.value, currentTreeTemplate.value);
+  });
+  /** 叶子节点下拉用的过滤后函数目录(未选模板 → 全量)。 */
+  const filteredFunctions = computed<FunctionDescriptor[]>(() => {
+    void rev.value;
+    return filterFunctionsByTemplate(functionCatalog.value.functions, currentTreeTemplate.value);
+  });
+  /**
+   * 把当前树的 templateId 改为指定值(空串 = 清空)。
+   * 直接改 DesignTree 字段而非走命令总线:模板绑定不属于图编辑历史,
+   * 与 undo/redo 无关;若走命令,拖拽/undo 会把过滤器一起回滚,反而影响体验。
+   * cognitionClass 同步写入 tree.cognition,供后续 <Root cognition="..."> 导出使用。
+   */
+  function setTreeTemplate(templateId: string): void {
+    const t = currentTree.value;
+    if (!t) return;
+    t.templateId = templateId || undefined;
+    const tpl = templateId ? unitTemplates.value.find((x) => x.templateId === templateId) : undefined;
+    if (tpl?.cognitionClass) t.cognition = tpl.cognitionClass;
+    bump();
+  }
+
   return {
     mode,
     workspaceName,
@@ -728,6 +798,13 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     rememberRecent,
     loadRecent,
     removeRecent,
+    unitTemplates,
+    setUnitTemplates,
+    ingestScenariosForTemplates,
+    currentTreeTemplate,
+    filteredClasses,
+    filteredFunctions,
+    setTreeTemplate,
     triggerRefHack: () => triggerRef(trees),
   };
 });

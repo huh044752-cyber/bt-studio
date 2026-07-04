@@ -256,7 +256,7 @@ function collapseAll(v: boolean) {
             <input class="input tiny inl name-in" v-model="a.cls.displayName" placeholder="显示名" />
             <code class="cls-name">{{ a.cls.className }}</code>
             <span class="src-tag" :class="a.cls.source === 'user' ? 'user' : 'model'">{{ a.cls.source === "user" ? "用户" : "模型" }}</span>
-            <span v-if="a.cls.baseClass" class="base muted-2" :title="'基类 ' + a.cls.baseClass">: {{ a.cls.baseClass }}</span>
+            <!-- baseClass 曾展示为"模型 : CyberCognitionImpl",但生成代码统一继承 CyberDecisionAgentBase,该标签会误导用户。已移除。 -->
             <span class="spacer" />
             <span class="counts"><b>{{ a.methods.length }}</b> 方法 · <b>{{ a.members.length }}</b> 成员</span>
             <button class="btn tiny" @click="addMethod(a.cls.className)">＋方法</button>

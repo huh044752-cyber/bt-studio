@@ -13,6 +13,12 @@ import { XMLParser } from "fast-xml-parser";
 export interface ScenarioComponent {
   className: string;
   componentId: string; // data_id
+  /**
+   * 老版 .sdata 上的组件 type 属性(Cognition / Equipment / Platform ...)。
+   * 用于 UnitTemplate 派生时定位"这只实体的认知类"—— Root 挂接需要这个字段还原 <Root cognition="...">。
+   * 新版 .sdata 无此属性,保持 undefined。
+   */
+  componentType?: string;
 }
 export interface ScenarioUnit {
   objectHandle: string;
@@ -62,7 +68,11 @@ export function parseScenarioUnits(sdataXml: string): ScenarioUnit[] {
           const c = comp as Record<string, unknown>;
           // data_id(新)或 uuid(老)。
           const compId = String(c["@_data_id"] ?? c["@_uuid"] ?? "");
-          if (compId) components.push({ className: key, componentId: compId });
+          if (compId) {
+            const rawType = c["@_type"];
+            const componentType = rawType !== undefined && rawType !== null ? String(rawType) : undefined;
+            components.push({ className: key, componentId: compId, componentType });
+          }
         }
       }
     };

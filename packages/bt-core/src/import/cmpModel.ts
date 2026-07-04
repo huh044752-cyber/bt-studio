@@ -19,7 +19,6 @@
  */
 import { XMLParser } from "fast-xml-parser";
 import type { ClassDescriptor, FunctionDescriptor, FunctionParam } from "../types/catalog.js";
-import { categoryToBaseClass } from "../types/catalog.js";
 import type { DisplayType, CyberMARGType } from "../types/mal.js";
 import { newFunctionId, prefixedId } from "../model/ids.js";
 
@@ -164,6 +163,9 @@ export function parseCmp(xml: string, fallbackClassName?: string): CmpParseResul
   // 新版属性形态:@_type;老版无;若无则按 RuleDecision(认知)缺省。
   const category0 = String(protos["@_type"] ?? "RuleDecision");
   const clsDesc = protos["@_remarks"] ?? protos["@_Desc"];
+  // baseClass 曾按 category 推断为 CyberCognitionImpl / CyberPlatformImpl 等业务标签,
+  // 但代码生成 (userAgentHeader) 已统一直接继承 CyberDecisionAgentBase,不再消费该字段;
+  // 保留业务前缀在 UI 反而误导用户以为会继承 CyberCognitionImpl。故此不再填充。
   const cls: ClassDescriptor = {
     classId,
     className,
@@ -172,7 +174,6 @@ export function parseCmp(xml: string, fallbackClassName?: string): CmpParseResul
     hostModule: category0,
     description: clsDesc ? String(clsDesc) : undefined,
     source: "model",
-    baseClass: categoryToBaseClass(category0),
   };
 
   const functions: FunctionDescriptor[] = [];
@@ -295,6 +296,7 @@ export function parseMuiFile(xml: string, fallbackClassName?: string): {
     modelType.toLowerCase().includes("equipment") ? "Equipment"
     : modelType.toLowerCase().includes("platform") ? "Platforms"
     : "RuleDecision";
+  // 见上方注释:代码生成统一继承 CyberDecisionAgentBase,baseClass 不再填。
   const cls: ClassDescriptor = {
     classId: prefixedId("class"),
     className,
@@ -303,7 +305,6 @@ export function parseMuiFile(xml: string, fallbackClassName?: string): {
     hostModule: category,
     description: remarks && remarks !== "null" ? remarks : undefined,
     source: "model",
-    baseClass: categoryToBaseClass(category),
   };
   const params: { name: string; widget: string; defaultValue?: string; displayName?: string }[] = [];
   for (const p of arr<Record<string, unknown>>(v["param"] as never)) {

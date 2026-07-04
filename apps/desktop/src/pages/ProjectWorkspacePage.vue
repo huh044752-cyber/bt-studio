@@ -14,10 +14,14 @@ import {
   pickWritableDir,
   writeFilesToDirHandle,
   readModelCmpFiles,
+  scanScenarios,
+  readPathText,
   isTauri,
   type FsDirHandle,
+  type ScannedModelDir,
 } from "@/services/tauri";
 import ModelExtractPanel from "@/components/workspace/ModelExtractPanel.vue";
+import { ingestScannedModel } from "@/composables/useModelIngest";
 
 const ws = useWorkspaceStore();
 const c = useConsoleStore();
@@ -91,26 +95,68 @@ async function applyCfg() {
   if (modelChanged) await autoScanModel();
 }
 
-// 浏览器选目录时一次性读到的 .cmp 内容,暂存以便确定后扫描(避免再次弹选择框)。
-const pendingModel = ref<{ root: string; contents: string[] } | null>(null);
+// 浏览器选目录时一次性读到的扫描结果,暂存以便"确定"后走 ingest 全流程(避免再次弹选择框)。
+// 必须保留 files+muiFiles,否则老版 .cmp+.mui 配对解析路径会丢失 .mui 信息。
+const pendingModel = ref<ScannedModelDir | null>(null);
 
-/** 配置了模型目录即自动扫描解析(无需再手动点"扫描模型目录")。 */
+function reportIngest(root: string, r: ReturnType<typeof ingestScannedModel>): void {
+  c.success(
+    "import",
+    `工作空间上传完成 · ${r.paired ? "配对.cmp+.mui" : ".cmp"}:${r.classes} 类 · ${r.functions} 方法 → 已自动抽取 ${r.extractedFunctions} 方法到类型空间`,
+    { detail: root },
+  );
+}
+
+/**
+ * 扫想定 → 派生 UnitTemplate → 写入 store。仅 Tauri;浏览器模式 scanScenarios 返回 null,静默略过。
+ * 不阻塞主流程 —— 失败/为空只在 console 记 info,让用户仍能继续导入类型。
+ */
+async function refreshUnitTemplates(root: string): Promise<void> {
+  if (!root || root.startsWith(BROWSER_MARK)) return;
+  const list = await scanScenarios(root);
+  if (!list || list.length === 0) { ws.setUnitTemplates([]); return; }
+  const scenarios: { name: string; sdataXml: string }[] = [];
+  for (const s of list) {
+    const xml = await readPathText(s.sdataPath);
+    if (xml) scenarios.push({ name: s.name, sdataXml: xml });
+  }
+  const n = ws.ingestScenariosForTemplates(scenarios);
+  if (n > 0) c.info("import", `派生实体模板 ${n} 个(来自 ${scenarios.length} 份想定)`);
+}
+
+/** 配置了模型目录即自动扫描并抽取到类型空间(无需再手动点"扫描/抽取")。 */
 async function autoScanModel() {
   if (!ws.modelRoot) return;
-  // 浏览器记号目录在 store 直接重开时已没有真实 contents,跳过自动扫描;
-  // 用户可在「模型类型抽取」页重新拖入。
-  if (ws.modelRoot.startsWith(BROWSER_MARK)) return;
+  // 优先消费 pickModelDir 存下来的扫描结果(含 .cmp/.mui 完整字节流)。
+  // 浏览器模式全靠此路径 —— webkitdirectory 一次读完,不能再次拿到相同的文件句柄。
+  // 老 bug:BROWSER_MARK 检查曾放在这之前,导致浏览器模式下永远走不到 pendingModel 分支,
+  // 用户看到"已选目录 xx 个 .cmp"却怎么等类型空间都不更新。
   if (pendingModel.value && pendingModel.value.root === ws.modelRoot) {
     const p = pendingModel.value;
     pendingModel.value = null;
-    if (p.contents.length) { ws.parseModelDir(p.root, p.contents); tab.value = "extract"; }
-    else c.warning("import", `所选目录无 .cmp:${p.root}`);
+    if (p.contents.length) {
+      const r = ingestScannedModel(p);
+      reportIngest(p.root, r);
+      await refreshUnitTemplates(p.root);
+      tab.value = "overview";
+    } else {
+      c.warning("import", `所选目录无 .cmp:${p.root}`);
+    }
     return;
   }
+  // 无 pendingModel 且是浏览器记号目录(通常是从最近工作空间重开):无法用绝对路径重扫,
+  // 只能提示用户在「模型类型抽取」页重新选目录。
+  if (ws.modelRoot.startsWith(BROWSER_MARK)) {
+    c.warning("import", "浏览器模式无法用记号目录重扫,请在「模型类型抽取」页重新选择目录");
+    return;
+  }
+  // Tauri:根据绝对路径重新扫描 + ingest。
   const res = await readModelCmpFiles(ws.modelRoot);
   if (res && res.contents.length) {
-    ws.parseModelDir(res.root, res.contents);
-    tab.value = "extract";
+    const r = ingestScannedModel(res);
+    reportIngest(res.root, r);
+    await refreshUnitTemplates(res.root);
+    tab.value = "overview";
   } else if (res) {
     c.warning("import", `模型目录无 .cmp:${res.root}`);
   }
@@ -128,10 +174,12 @@ async function pickModelDir(target: "new" | "cfg") {
   }
   const res = await readModelCmpFiles();
   if (!res) return;
-  // 浏览器:文件夹"名"加 browser:: 前缀,避免冒充绝对路径
-  setVal(`${BROWSER_MARK}${res.root}`);
-  pendingModel.value = { root: `${BROWSER_MARK}${res.root}`, contents: res.contents };
-  c.info("import", `已选目录 ${res.root}:${res.contents.length} 个 .cmp(确定后抽取)`);
+  // 浏览器:文件夹"名"加 browser:: 前缀,避免冒充绝对路径。
+  // 保留完整扫描结果(files+muiFiles),autoScanModel 拿到后走 ingest → 自动抽取。
+  const markedRoot = `${BROWSER_MARK}${res.root}`;
+  setVal(markedRoot);
+  pendingModel.value = { ...res, root: markedRoot };
+  c.info("import", `已选目录 ${res.root}:${res.contents.length} 个 .cmp(确定即抽取)`);
 }
 
 async function pickExportDir(target: "new" | "cfg") {
@@ -246,7 +294,11 @@ async function openWorkspace() {
   ws.rememberRecent(ws.workspaceName, f.content);
   if (ws.modelRoot && !ws.modelRoot.startsWith(BROWSER_MARK) && isTauri()) {
     const res = await readModelCmpFiles(ws.modelRoot);
-    if (res && res.contents.length) ws.parseModelDir(res.root, res.contents);
+    if (res && res.contents.length) {
+      const r = ingestScannedModel(res);
+      reportIngest(res.root, r);
+    }
+    await refreshUnitTemplates(ws.modelRoot);
   }
   c.success("import", `已打开工作空间:${ws.workspaceName}`);
 }

@@ -10,13 +10,26 @@ import { describeNode } from "@/utils/nodeInfo";
 
 const ws = useWorkspaceStore();
 
-const node = computed(() => ws.selectedNode);
+// 关键:pinia 里 trees 是 shallowRef,`ws.run` 通过 Object.assign 就地改 DesignNode,
+// 对象引用没变。Vue 3 computed 通过"返回值 !== 旧值"决定是否通知下游 —— 引用相等
+// 意味着 selectedNode 重算返回同一 DesignNode 引用,下游读 node.value.functionRef 等
+// 直读字段的模板 render effect / computed 全部命中缓存,select 的 :value 永远显示
+// 旧值(用户表现:"选了类却回显不上、方法下拉一直灰")。
+// 解法:让 node 每次返回浅拷贝新引用,同时订阅 ws.rev 保证 bump 后必然重算 —— 引用
+// 差异让 Vue 通知全部下游,模板拿到最新属性快照。setNodeClass 里 patch 通过 nodeId
+// 落到真实 tree.nodes[id],所以这里给外部用的浅拷贝不影响写路径。
+const node = computed(() => {
+  void ws.rev;
+  const n = ws.selectedNode;
+  return n ? { ...n } : undefined;
+});
 const def = computed(() => (node.value ? defaultRegistry.get(node.value.nodeType) : undefined));
 const info = computed(() => {
   void ws.rev;
   return node.value ? describeNode(node.value, ws.currentTree, ws.functionCatalog) : undefined;
 });
 const schema = computed(() => def.value?.properties ?? []);
+// Root 不进这里:根节点在设计态不绑类/函数,类的绑定是场景挂接阶段的事(模板 → 实体组件类)。
 const isFnNode = computed(() =>
   ["Action", "Condition", "ConditionTransform", "Wait", "State", "ConditionTransition"].includes(node.value?.nodeType ?? ""),
 );
@@ -35,15 +48,27 @@ function showField(p: { propName: string; dependsOn?: string }): boolean {
 
 const nodeIssues = computed(() => ws.issues.filter((i) => i.nodeId === node.value?.nodeId));
 
-const nodeClass = computed(() => node.value?.targetSelector?.modelClass ?? "");
-const modelClasses = computed(() => { void ws.rev; return ws.classes; });
+// 同上注释:读节点字段的 computed 必须显式订阅 ws.rev,否则 Object.assign 就地
+// mutation 不会触发下游 <select :value="nodeClass"> 更新。
+const nodeClass = computed(() => { void ws.rev; return node.value?.targetSelector?.modelClass ?? ""; });
+// 类下拉:若当前树 Root 绑了实体模板,则只列该模板挂载的组件类;否则全量。
+// 模板未选 → 保持"通用树"体验(全量类目);模板已选 → 收敛用户注意力到相关组件类,
+// 防止在几十上百个类里错选。ws.filteredClasses 已在 store 侧根据 currentTreeTemplate 派生。
+const modelClasses = computed(() => { void ws.rev; return ws.filteredClasses; });
 const methodsForClass = computed(() => {
   void ws.rev;
   const cls = nodeClass.value;
   if (!cls) return [];
   // 不按 action/condition 分类过滤:条件节点也可以选动作类方法,只看返回值/输出字段判定。
-  return ws.functionCatalog.functions.filter((f) => functionOwnerClass(f) === cls);
+  // 同样按模板过滤:模板已选 → 只保留 ownerClass ∈ 模板.componentClasses 的函数。
+  return ws.filteredFunctions.filter((f) => functionOwnerClass(f) === cls);
 });
+
+// Root 属性面板专用:模板下拉候选(全部想定派生的模板)+ 当前树绑定的模板 id。
+const isRoot = computed(() => node.value?.nodeType === "Root");
+const rootTemplateId = computed(() => { void ws.rev; return ws.currentTree?.templateId ?? ""; });
+const templateOptions = computed(() => { void ws.rev; return ws.unitTemplates; });
+function setRootTemplate(id: string) { ws.setTreeTemplate(id); }
 
 const stateOptions = computed(() => {
   void ws.rev;
@@ -197,13 +222,39 @@ function setOutputVar(bindingIndex: number, variableId: string) {
       </div>
     </div>
 
-    <!-- 类型空间为空时:绑定无意义,引导先准备类型 -->
-    <div v-if="isFnNode && modelClasses.length === 0" class="bind-block no-type">
-      <span class="tag warning">无类型</span>
-      类型空间为空,绑定函数无意义。请先到「工作空间 → 模型类型抽取」勾选真实模型类,或在「类型空间」新建类。
+    <!-- Root 专属:实体模板选择器。模板来源 = 想定 .sdata 的 Unit 派生(scenarioName/unitName)。
+         选中即把 tree.templateId 写回,叶子节点的类/函数下拉自动收敛到模板挂载的组件类范围。 -->
+    <div v-if="isRoot" class="form bind-block">
+      <div v-if="!templateOptions.length" class="bind-hint">
+        <span class="tag muted-2">未派生模板</span>
+        当前工作空间还没扫到想定(.sdata) 或 Unit 里没有组件。载入想定后模板下拉会自动出现。
+      </div>
+      <label class="field">
+        <span class="lbl">实体模板</span>
+        <select class="select" :value="rootTemplateId" @change="setRootTemplate(($event.target as HTMLSelectElement).value)">
+          <option value="">— 通用(不绑模板,类下拉全量)—</option>
+          <option v-for="t in templateOptions" :key="t.templateId" :value="t.templateId">
+            {{ t.scenarioName }} / {{ t.unitName }}
+            <template v-if="t.typeOfUnit"> · {{ t.typeOfUnit }}</template>
+            ({{ t.componentClasses.length }} 组件<span v-if="t.cognitionClass"> · Cog: {{ t.cognitionClass }}</span>)
+          </option>
+        </select>
+      </label>
     </div>
-    <!-- 每节点 类→方法 绑定(Action/Condition/State 等)。类来自真实模型/用户类。 -->
-    <div v-else-if="isFnNode" class="form bind-block">
+
+    <!-- 每节点 类→方法 绑定(Action/Condition/State 等)。类来自真实模型/用户类。
+         类型空间为空时不再隐藏这块 UI(否则用户看不到可以做什么),而是加一条内嵌引导横幅。
+         模板已选但过滤后为空 → 单独提示"模板组件均未抽取",引导用户去抽取页补齐。 -->
+    <div v-if="isFnNode" class="form bind-block">
+      <div v-if="modelClasses.length === 0 && ws.currentTreeTemplate" class="bind-hint">
+        <span class="tag warning">模板组件未抽取</span>
+        Root 已绑模板「{{ ws.currentTreeTemplate.scenarioName }}/{{ ws.currentTreeTemplate.unitName }}」,
+        但其挂载的组件类均未在类型空间。请到「模型类型抽取」勾选这些类。
+      </div>
+      <div v-else-if="modelClasses.length === 0" class="bind-hint">
+        <span class="tag warning">类型空间为空</span>
+        请到「工作空间 → 模型类型抽取」勾选真实模型类,或在「类型空间」新建类;届时下拉自动出现候选。
+      </div>
       <label class="field">
         <span class="lbl">类 (Class) <span class="req">*</span></span>
         <select class="select" :value="nodeClass" @change="setNodeClass(($event.target as HTMLSelectElement).value)">
@@ -484,13 +535,17 @@ function setOutputVar(bindingIndex: number, variableId: string) {
   margin-bottom: 8px;
   background: rgba(94, 179, 255, 0.05);
 }
-.bind-block.no-type {
-  border-color: rgba(245, 182, 92, 0.4);
+.bind-hint {
+  border: 1px dashed rgba(245, 182, 92, 0.4);
   background: rgba(245, 182, 92, 0.07);
-  font-size: 11.5px;
-  line-height: 1.6;
   color: var(--muted);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  font-size: 11.5px;
+  line-height: 1.55;
 }
+.bind-hint .tag { margin-right: 6px; }
 .field {
   display: flex;
   flex-direction: column;

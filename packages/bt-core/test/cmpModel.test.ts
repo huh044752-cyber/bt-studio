@@ -105,7 +105,8 @@ describe("老引擎 .cmp + .mui 配对解析", () => {
     const r = parseCmp(OLD_COGNITION_CMP, "BTAirToMCog")!;
     expect(r.class.className).toBe("BTAirToMCog");
     expect(r.class.category).toBe("RuleDecision");
-    expect(r.class.baseClass).toBe("CyberCognitionImpl");
+    // baseClass 字段已弃用(生成端统一继承 CyberDecisionAgentBase,不再写业务前缀):解析结果里应为 undefined。
+    expect(r.class.baseClass).toBeUndefined();
     const fire = r.functions.find((f) => f.name === "Fire")!;
     expect(fire.intendedCmd).toBe("FIRE");
     expect(fire.delay).toBe(1);
@@ -125,7 +126,7 @@ describe("老引擎 .cmp + .mui 配对解析", () => {
   it("老 .mui:class / model_type / remarks → ClassDescriptor", () => {
     const m = parseMuiFile(OLD_COGNITION_MUI)!;
     expect(m.cls.className).toBe("BTAirToMCog");
-    expect(m.cls.baseClass).toBe("CyberCognitionImpl");
+    expect(m.cls.baseClass).toBeUndefined();
     expect(m.cls.displayName).toBe("空地打击认知");
     const eq = parseMuiFile(OLD_EQUIPMENT_MUI)!;
     expect(eq.cls.className).toBe("FzTarget");
@@ -135,7 +136,7 @@ describe("老引擎 .cmp + .mui 配对解析", () => {
   it("配对解析:.mui 提供元数据,.cmp 提供函数", () => {
     const r = parseCmpMuiPair(OLD_COGNITION_CMP, OLD_COGNITION_MUI, "BTAirToMCog")!;
     expect(r.class.displayName).toBe("空地打击认知");
-    expect(r.class.baseClass).toBe("CyberCognitionImpl");
+    expect(r.class.baseClass).toBeUndefined();
     expect(r.functions.find((f) => f.name === "Fire")).toBeDefined();
     const r2 = parseCmpMuiPairs([
       { baseName: "BTAirToMCog", cmp: OLD_COGNITION_CMP, mui: OLD_COGNITION_MUI },

@@ -166,7 +166,7 @@ describe("完整工程生成:依赖库 runtime + 类型实现 types", () => {
         ],
       },
       globalBlackboards: [], enums: [], structs: [], types: [],
-      classes: [{ classId: "c2", className: "FZAirFighter", displayName: "战机", category: "RuleDecision", hostModule: "", source: "model", baseClass: "CyberCognitionImpl" }],
+      classes: [{ classId: "c2", className: "FZAirFighter", displayName: "战机", category: "RuleDecision", hostModule: "", source: "model" }],
       members: [],
     };
     const files = generateProject({ workspaceName: "demo", namespace: "btproj", catalog: cat, behaviors: [{ name: "t", xml: "<Root id=\"1\"/>" }] });

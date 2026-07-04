@@ -37,7 +37,8 @@ export type PropertyEditorType =
   | "subtree-picker"
   | "target-picker"
   | "target-state-picker"
-  | "compare-op";
+  | "compare-op"
+  | "unit-template-picker";
 
 export interface PropertySchema {
   propName: string;

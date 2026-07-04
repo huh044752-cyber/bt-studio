@@ -79,6 +79,20 @@ const P_TARGET: PropertySchema = {
   noExport: false,
   noSave: false,
 };
+// 根节点绑定的"实体模板"(UnitTemplate)。模板从想定 .sdata 的 Unit 派生,
+// 承载"这颗树是给哪类实体用的"语义,叶子节点的类/函数下拉据此过滤到
+// 该实体挂载的组件类范围。未选时叶子下拉降级为全量,场景挂接页仍可继续。
+const P_TEMPLATE: PropertySchema = {
+  propName: "templateId",
+  displayName: "实体模板",
+  category: "基础",
+  editorType: "unit-template-picker",
+  displayMode: "parameter",
+  required: false,
+  readonly: false,
+  noExport: true,
+  noSave: false,
+};
 // FSM 转移节点指向的目标状态(引用 nodeId,而非结构子边)。
 const P_TARGET_STATE: PropertySchema = {
   propName: "transitionTarget",
@@ -115,6 +129,10 @@ function builtins(): NodeDefinition[] {
   const list: NodeDefinition[] = [];
 
   // Root —— 编辑器根容器,导出为 <Root>,恰好 1 子。
+  // Root 只绑"实体模板"(UnitTemplate):从当前工作空间的想定派生。
+  // 选中模板后,树内叶子节点的"类/函数"下拉自动过滤到该模板挂载的组件类范围
+  // —— 类是 UI 过滤维度,不落进 XML;运行时仍按 <Action className=... function=...>
+  // 装配。类和函数的绑定仍在叶子节点上完成。
   list.push({
     nodeType: "Root",
     runtimeKind: "Unknown",
@@ -128,8 +146,8 @@ function builtins(): NodeDefinition[] {
     inputPort: IN_NONE,
     outputPort: OUT_SINGLE,
     fosimSupported: true,
-    description: "行为树根。固定 0 入 1 出,必须且只能有 1 个子节点。",
-    properties: [P_NAME, P_COMMENT],
+    description: "行为树根。固定 0 入 1 出,必须且只能有 1 个子节点。可选绑定实体模板,过滤叶子节点的类/函数下拉。",
+    properties: [P_NAME, P_TEMPLATE, P_COMMENT],
   });
 
   // Composite
