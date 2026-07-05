@@ -67,7 +67,7 @@ describe("unitTemplate", () => {
     expect(cog?.componentType).toBe("Cognition");
   });
 
-  it("unitToTemplate:cognition 组件类被抽出为 cognitionClass", () => {
+  it("unitToTemplate:cognition 组件类被抽出为 cognitionClass,组件实例完整保留", () => {
     const units = parseScenarioUnits(OLD_SDATA_A);
     const j10 = units.find((u) => u.name === "J-10")!;
     const t = unitToTemplate("场景A", j10);
@@ -77,6 +77,10 @@ describe("unitTemplate", () => {
     expect(t.componentClasses.sort()).toEqual(["FzAPSDP", "FzFixedWing", "FzOOIC"]);
     expect(t.cognitionClass).toBe("FzOOIC");
     expect(t.typeOfUnit).toBe("飞机");
+    expect(t.components.length).toBe(3);
+    const cog = t.components.find((c) => c.className === "FzOOIC");
+    expect(cog?.componentId).toBe("cog-1");
+    expect(cog?.componentType).toBe("Cognition");
   });
 
   it("deriveUnitTemplates:多份想定合并 + 空壳 Unit 被跳过", () => {

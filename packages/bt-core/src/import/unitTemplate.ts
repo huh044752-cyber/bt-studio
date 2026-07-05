@@ -10,7 +10,7 @@
  */
 import type { ClassDescriptor, FunctionDescriptor } from "../types/catalog.js";
 import { functionOwnerClass } from "../types/catalog.js";
-import { parseScenarioUnits, type ScenarioUnit } from "./scenario.js";
+import { parseScenarioUnits, type ScenarioComponent, type ScenarioUnit } from "./scenario.js";
 
 export interface UnitTemplate {
   /** 稳定 id:优先用 Unit.modelId(UUID),兜底 `${scenario}::${unit}`。 */
@@ -20,7 +20,13 @@ export interface UnitTemplate {
   /** 实体名(J-10 / 基地 ...)。 */
   unitName: string;
   typeOfUnit?: string;
-  /** 该实体挂载的组件类(去重后)。 */
+  /**
+   * 该实体挂载的组件实例(保留 className/componentId/componentType)。
+   * PropertiesPanel 叶子节点直接以此为下拉候选:选中一个组件即同时锁定
+   * className(过滤函数)和 componentId(供 attach 时写回 targetSelector)。
+   */
+  components: ScenarioComponent[];
+  /** 该实体挂载的组件类(去重后,给类维度过滤用)。 */
   componentClasses: string[];
   /** 组件中被标为 type="Cognition" 的第一个组件类,回填 <Root cognition="..."> 用。 */
   cognitionClass?: string;
@@ -40,6 +46,7 @@ export function unitToTemplate(scenarioName: string, unit: ScenarioUnit): UnitTe
     scenarioName,
     unitName: unit.name,
     typeOfUnit: unit.typeOfUnit,
+    components: unit.components,
     componentClasses,
     cognitionClass: cognitionComp?.className,
   };

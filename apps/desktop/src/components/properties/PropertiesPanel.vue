@@ -70,6 +70,15 @@ const rootTemplateId = computed(() => { void ws.rev; return ws.currentTree?.temp
 const templateOptions = computed(() => { void ws.rev; return ws.unitTemplates; });
 function setRootTemplate(id: string) { ws.setTreeTemplate(id); }
 
+// 叶子节点(Action/Condition/...) 层级链:
+//   模板已选 → 从模板挂载的组件中选一个 → 再选该组件类下的函数
+//   模板未选 → 降级到"从类目里选类" → 再选该类下的函数
+// 组件维度胜过类维度,因为组件 id 是老引擎运行时定位组件实例的唯一依据 —— 直接选组件
+// 就同时锁定了 modelClass 和 componentId,场景挂接时不再需要 className→componentId 回填。
+const hasTemplate = computed(() => !!ws.currentTreeTemplate);
+const templateComponents = computed(() => { void ws.rev; return ws.currentTreeTemplate?.components ?? []; });
+const nodeComponentId = computed(() => { void ws.rev; return node.value?.targetSelector?.componentId ?? ""; });
+
 const stateOptions = computed(() => {
   void ws.rev;
   const t = ws.currentTree;
@@ -122,7 +131,18 @@ function setNodeClass(className: string) {
   const n = node.value;
   if (!n) return;
   ws.run({ kind: "UpdateNodeProperty", nodeId: n.nodeId,
-    patch: { targetSelector: { ...(n.targetSelector ?? {}), modelClass: className }, functionRef: "", inputBindings: [], outputBindings: [] } });
+    patch: { targetSelector: { ...(n.targetSelector ?? {}), modelClass: className, componentId: undefined }, functionRef: "", inputBindings: [], outputBindings: [] } });
+}
+
+// 组件下拉:传入 componentId(可能为空 = 清空)。同一模板里组件 id 唯一,据此定位 className。
+// 一次性写入 modelClass + componentId,叶子节点就完整锁定到具体组件实例。
+function setNodeComponent(componentId: string) {
+  const n = node.value;
+  if (!n) return;
+  const comp = templateComponents.value.find((c) => c.componentId === componentId);
+  const modelClass = comp?.className ?? "";
+  ws.run({ kind: "UpdateNodeProperty", nodeId: n.nodeId,
+    patch: { targetSelector: { ...(n.targetSelector ?? {}), modelClass, componentId: componentId || undefined }, functionRef: "", inputBindings: [], outputBindings: [] } });
 }
 
 function bindMethod(methodName: string) {
@@ -255,7 +275,19 @@ function setOutputVar(bindingIndex: number, variableId: string) {
         <span class="tag warning">类型空间为空</span>
         请到「工作空间 → 模型类型抽取」勾选真实模型类,或在「类型空间」新建类;届时下拉自动出现候选。
       </div>
-      <label class="field">
+      <!-- 模板已选:组件优先。选组件 → 同时锁定 className + componentId(挂接免二次回填)。 -->
+      <label v-if="hasTemplate" class="field">
+        <span class="lbl">组件 (Component) <span class="req">*</span></span>
+        <select class="select" :value="nodeComponentId" @change="setNodeComponent(($event.target as HTMLSelectElement).value)">
+          <option value="">— 选择组件 —</option>
+          <option v-for="c in templateComponents" :key="c.componentId" :value="c.componentId">
+            {{ c.className }}<template v-if="c.componentType"> · {{ c.componentType }}</template>
+            <template v-if="c.componentId"> ({{ c.componentId.slice(0, 8) }})</template>
+          </option>
+        </select>
+      </label>
+      <!-- 模板未选:降级到类下拉,保持"通用树"体验。 -->
+      <label v-else class="field">
         <span class="lbl">类 (Class) <span class="req">*</span></span>
         <select class="select" :value="nodeClass" @change="setNodeClass(($event.target as HTMLSelectElement).value)">
           <option value="">— 选择类 —</option>
