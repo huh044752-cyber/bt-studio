@@ -16,10 +16,11 @@ import {
   parseWorkspaceXml,
   parseCmpFiles,
   parseCmpMuiPairs,
-  deriveUnitTemplates,
+  deriveMcrTemplates,
   filterClassesByTemplate,
   filterFunctionsByTemplate,
-  type UnitTemplate,
+  type McrTemplate,
+  type McrTemplateFile,
   generateCpp,
   generateProject,
   toBehaviorTreeDef,
@@ -88,9 +89,10 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   const classes = ref<ClassDescriptor[]>([]);
   const members = ref<MemberDescriptor[]>([]);
   const structs = ref<StructDescriptor[]>([]);
-  // 从想定(.sdata) 派生的实体模板集合。Root 的 templateId 引用这里的 templateId。
-  // 由 ProjectWorkspacePage / ScenarioAttachPage 在扫想定后触发 setUnitTemplates 写入。
-  const unitTemplates = ref<UnitTemplate[]>([]);
+  // 从 <modelRoot>/ModelDatabase/FZMCR 派生的实体模板集合(每个 .mcr 一个 McrTemplate)。
+  // Root 的 templateId 引用这里的 templateId。由 ProjectWorkspacePage 在扫模型目录后触发
+  // setMcrTemplates / ingestMcrTemplates 写入。场景挂接前无 Unit 概念。
+  const mcrTemplates = ref<McrTemplate[]>([]);
 
   const currentTree = computed<DesignTree | undefined>(() => {
     void rev.value;
@@ -163,7 +165,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     types.value = [];
     modelRawClasses.value = [];
     modelRawFunctions.value = [];
-    unitTemplates.value = [];
+    mcrTemplates.value = [];
     currentTreeId.value = "";
     selectedNodeId.value = "";
     issues.value = [];
@@ -684,23 +686,22 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   loadRecentFromStorage();
   watch(recentWorkspaces, saveRecentToStorage, { deep: true });
 
-  /** 覆写整份模板集合(扫想定后调用)。 */
-  function setUnitTemplates(list: UnitTemplate[]): void {
-    unitTemplates.value = list;
+  /** 覆写整份 MCR 模板集合(扫 FZMCR 目录后调用)。 */
+  function setMcrTemplates(list: McrTemplate[]): void {
+    mcrTemplates.value = list;
   }
-  /** 扫多份 .sdata → 派生模板 → 写入 store。空数组不重置。 */
-  function ingestScenariosForTemplates(scenarios: { name: string; sdataXml: string }[]): number {
-    if (!scenarios.length) return 0;
-    const list = deriveUnitTemplates(scenarios);
-    unitTemplates.value = list;
+  /** 扫多份 .mcr → 派生模板 → 写入 store。空数组会清空(便于换 modelRoot 后重置)。 */
+  function ingestMcrTemplates(files: McrTemplateFile[]): number {
+    const list = deriveMcrTemplates(files);
+    mcrTemplates.value = list;
     return list.length;
   }
   /** 当前树绑定的模板(未选或不存在 → undefined)。 */
-  const currentTreeTemplate = computed<UnitTemplate | undefined>(() => {
+  const currentTreeTemplate = computed<McrTemplate | undefined>(() => {
     void rev.value;
     const t = currentTree.value;
     if (!t?.templateId) return undefined;
-    return unitTemplates.value.find((tpl) => tpl.templateId === t.templateId);
+    return mcrTemplates.value.find((tpl) => tpl.templateId === t.templateId);
   });
   /** 叶子节点下拉用的过滤后类目(未选模板 → 全量)。 */
   const filteredClasses = computed<ClassDescriptor[]>(() => {
@@ -722,7 +723,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     const t = currentTree.value;
     if (!t) return;
     t.templateId = templateId || undefined;
-    const tpl = templateId ? unitTemplates.value.find((x) => x.templateId === templateId) : undefined;
+    const tpl = templateId ? mcrTemplates.value.find((x) => x.templateId === templateId) : undefined;
     if (tpl?.cognitionClass) t.cognition = tpl.cognitionClass;
     bump();
   }
@@ -798,9 +799,9 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     rememberRecent,
     loadRecent,
     removeRecent,
-    unitTemplates,
-    setUnitTemplates,
-    ingestScenariosForTemplates,
+    mcrTemplates,
+    setMcrTemplates,
+    ingestMcrTemplates,
     currentTreeTemplate,
     filteredClasses,
     filteredFunctions,

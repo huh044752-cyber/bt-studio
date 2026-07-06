@@ -67,7 +67,7 @@ const methodsForClass = computed(() => {
 // Root 属性面板专用:模板下拉候选(全部想定派生的模板)+ 当前树绑定的模板 id。
 const isRoot = computed(() => node.value?.nodeType === "Root");
 const rootTemplateId = computed(() => { void ws.rev; return ws.currentTree?.templateId ?? ""; });
-const templateOptions = computed(() => { void ws.rev; return ws.unitTemplates; });
+const templateOptions = computed(() => { void ws.rev; return ws.mcrTemplates; });
 function setRootTemplate(id: string) { ws.setTreeTemplate(id); }
 
 // 叶子节点(Action/Condition/...) 层级链:
@@ -242,21 +242,21 @@ function setOutputVar(bindingIndex: number, variableId: string) {
       </div>
     </div>
 
-    <!-- Root 专属:实体模板选择器。模板来源 = 想定 .sdata 的 Unit 派生(scenarioName/unitName)。
-         选中即把 tree.templateId 写回,叶子节点的类/函数下拉自动收敛到模板挂载的组件类范围。 -->
+    <!-- Root 专属:实体模板选择器。模板来源 = <modelRoot>/ModelDatabase/FZMCR 里的 .mcr 文件。
+         选中即把 tree.templateId 写回,叶子节点的组件/函数下拉自动收敛到模板挂载的组件范围。
+         挂载前无 Unit 概念 —— 挂接时才把模板软匹配到想定里的具体实体。 -->
     <div v-if="isRoot" class="form bind-block">
       <div v-if="!templateOptions.length" class="bind-hint">
         <span class="tag muted-2">未派生模板</span>
-        当前工作空间还没扫到想定(.sdata) 或 Unit 里没有组件。载入想定后模板下拉会自动出现。
+        当前工作空间还没扫到 .mcr。请在工作空间配置好 modelRoot,或确认 <code>ModelDatabase/FZMCR/</code> 有 .mcr 文件。
       </div>
       <label class="field">
         <span class="lbl">实体模板</span>
         <select class="select" :value="rootTemplateId" @change="setRootTemplate(($event.target as HTMLSelectElement).value)">
           <option value="">— 通用(不绑模板,类下拉全量)—</option>
           <option v-for="t in templateOptions" :key="t.templateId" :value="t.templateId">
-            {{ t.scenarioName }} / {{ t.unitName }}
-            <template v-if="t.typeOfUnit"> · {{ t.typeOfUnit }}</template>
-            ({{ t.componentClasses.length }} 组件<span v-if="t.cognitionClass"> · Cog: {{ t.cognitionClass }}</span>)
+            <template v-if="t.category">{{ t.category }} / </template>{{ t.templateName }}
+            ({{ t.componentClasses.length }} 组件<span v-if="t.cognitionClass"> · Cog: {{ t.cognitionClass }}</span><span v-if="t.unresolvedCount > 0"> · {{ t.unresolvedCount }} 未解析</span>)
           </option>
         </select>
       </label>
@@ -268,7 +268,7 @@ function setOutputVar(bindingIndex: number, variableId: string) {
     <div v-if="isFnNode" class="form bind-block">
       <div v-if="modelClasses.length === 0 && ws.currentTreeTemplate" class="bind-hint">
         <span class="tag warning">模板组件未抽取</span>
-        Root 已绑模板「{{ ws.currentTreeTemplate.scenarioName }}/{{ ws.currentTreeTemplate.unitName }}」,
+        Root 已绑模板「<template v-if="ws.currentTreeTemplate.category">{{ ws.currentTreeTemplate.category }}/</template>{{ ws.currentTreeTemplate.templateName }}」,
         但其挂载的组件类均未在类型空间。请到「模型类型抽取」勾选这些类。
       </div>
       <div v-else-if="modelClasses.length === 0" class="bind-hint">

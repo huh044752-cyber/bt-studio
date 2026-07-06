@@ -14,8 +14,7 @@ import {
   pickWritableDir,
   writeFilesToDirHandle,
   readModelCmpFiles,
-  scanScenarios,
-  readPathText,
+  scanMcrTemplates,
   isTauri,
   type FsDirHandle,
   type ScannedModelDir,
@@ -108,20 +107,17 @@ function reportIngest(root: string, r: ReturnType<typeof ingestScannedModel>): v
 }
 
 /**
- * 扫想定 → 派生 UnitTemplate → 写入 store。仅 Tauri;浏览器模式 scanScenarios 返回 null,静默略过。
+ * 扫 <modelRoot>/ModelDatabase/FZMCR → 派生 McrTemplate → 写入 store。
+ * 仅 Tauri:浏览器 scanMcrTemplates 返回 null,静默略过(BROWSER_MARK 目录同理)。
  * 不阻塞主流程 —— 失败/为空只在 console 记 info,让用户仍能继续导入类型。
  */
-async function refreshUnitTemplates(root: string): Promise<void> {
+async function refreshMcrTemplates(root: string): Promise<void> {
   if (!root || root.startsWith(BROWSER_MARK)) return;
-  const list = await scanScenarios(root);
-  if (!list || list.length === 0) { ws.setUnitTemplates([]); return; }
-  const scenarios: { name: string; sdataXml: string }[] = [];
-  for (const s of list) {
-    const xml = await readPathText(s.sdataPath);
-    if (xml) scenarios.push({ name: s.name, sdataXml: xml });
-  }
-  const n = ws.ingestScenariosForTemplates(scenarios);
-  if (n > 0) c.info("import", `派生实体模板 ${n} 个(来自 ${scenarios.length} 份想定)`);
+  const files = await scanMcrTemplates(root);
+  if (!files) return;
+  const n = ws.ingestMcrTemplates(files);
+  if (n > 0) c.info("import", `派生实体模板 ${n} 个(FZMCR/*.mcr)`);
+  else c.info("import", "未在 ModelDatabase/FZMCR 下找到 .mcr 文件");
 }
 
 /** 配置了模型目录即自动扫描并抽取到类型空间(无需再手动点"扫描/抽取")。 */
@@ -137,7 +133,7 @@ async function autoScanModel() {
     if (p.contents.length) {
       const r = ingestScannedModel(p);
       reportIngest(p.root, r);
-      await refreshUnitTemplates(p.root);
+      await refreshMcrTemplates(p.root);
       tab.value = "overview";
     } else {
       c.warning("import", `所选目录无 .cmp:${p.root}`);
@@ -155,7 +151,7 @@ async function autoScanModel() {
   if (res && res.contents.length) {
     const r = ingestScannedModel(res);
     reportIngest(res.root, r);
-    await refreshUnitTemplates(res.root);
+    await refreshMcrTemplates(res.root);
     tab.value = "overview";
   } else if (res) {
     c.warning("import", `模型目录无 .cmp:${res.root}`);
@@ -298,7 +294,7 @@ async function openWorkspace() {
       const r = ingestScannedModel(res);
       reportIngest(res.root, r);
     }
-    await refreshUnitTemplates(ws.modelRoot);
+    await refreshMcrTemplates(ws.modelRoot);
   }
   c.success("import", `已打开工作空间:${ws.workspaceName}`);
 }

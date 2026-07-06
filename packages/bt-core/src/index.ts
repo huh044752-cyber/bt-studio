@@ -49,7 +49,7 @@ export * from "./import/workspaceXml.js";
 export * from "./import/fsmXml.js";
 export * from "./import/cmpModel.js";
 export * from "./import/scenario.js";
-export * from "./import/unitTemplate.js";
+export * from "./import/mcr.js";
 
 // 布局
 export * from "./layout/autoLayout.js";

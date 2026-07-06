@@ -4,6 +4,7 @@
 
 pub mod behaviorlogic;
 pub mod fs_ops;
+pub mod mcr_scan;
 pub mod model_scan;
 pub mod runtime;
 pub mod scenario;
@@ -72,6 +73,11 @@ fn scan_model_cmp(root: String) -> model_scan::CmpScanResult {
 #[tauri::command]
 fn scan_scenarios(root: String) -> scenario::ScenarioScanResult {
     scenario::scan_scenarios(&root)
+}
+
+#[tauri::command]
+fn scan_mcr(root: String) -> mcr_scan::McrScanResult {
+    mcr_scan::scan_mcr(&root)
 }
 
 #[tauri::command]
@@ -189,6 +195,7 @@ pub fn run() {
             runtime_run,
             scan_model_cmp,
             scan_scenarios,
+            scan_mcr,
             write_scenario,
             pick_directory,
             vendor_engine_runtime,
