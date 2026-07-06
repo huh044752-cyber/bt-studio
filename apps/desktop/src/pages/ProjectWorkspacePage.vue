@@ -14,7 +14,6 @@ import {
   pickWritableDir,
   writeFilesToDirHandle,
   readModelCmpFiles,
-  scanMcrTemplates,
   isTauri,
   type FsDirHandle,
   type ScannedModelDir,
@@ -106,42 +105,24 @@ function reportIngest(root: string, r: ReturnType<typeof ingestScannedModel>): v
   );
 }
 
-/**
- * 扫 <modelRoot>/ModelDatabase/FZMCR → 派生 McrTemplate → 写入 store。
- * 仅 Tauri:浏览器 scanMcrTemplates 返回 null,静默略过(BROWSER_MARK 目录同理)。
- * 不阻塞主流程 —— 失败/为空只在 console 记 info,让用户仍能继续导入类型。
- */
-async function refreshMcrTemplates(root: string): Promise<void> {
-  if (!root || root.startsWith(BROWSER_MARK)) return;
-  const files = await scanMcrTemplates(root);
-  if (!files) return;
-  const n = ws.ingestMcrTemplates(files);
-  if (n > 0) c.info("import", `派生实体模板 ${n} 个(FZMCR/*.mcr)`);
-  else c.info("import", "未在 ModelDatabase/FZMCR 下找到 .mcr 文件");
-}
-
 /** 配置了模型目录即自动扫描并抽取到类型空间(无需再手动点"扫描/抽取")。 */
 async function autoScanModel() {
   if (!ws.modelRoot) return;
   // 优先消费 pickModelDir 存下来的扫描结果(含 .cmp/.mui 完整字节流)。
   // 浏览器模式全靠此路径 —— webkitdirectory 一次读完,不能再次拿到相同的文件句柄。
-  // 老 bug:BROWSER_MARK 检查曾放在这之前,导致浏览器模式下永远走不到 pendingModel 分支,
-  // 用户看到"已选目录 xx 个 .cmp"却怎么等类型空间都不更新。
   if (pendingModel.value && pendingModel.value.root === ws.modelRoot) {
     const p = pendingModel.value;
     pendingModel.value = null;
     if (p.contents.length) {
       const r = ingestScannedModel(p);
       reportIngest(p.root, r);
-      await refreshMcrTemplates(p.root);
       tab.value = "overview";
     } else {
       c.warning("import", `所选目录无 .cmp:${p.root}`);
     }
     return;
   }
-  // 无 pendingModel 且是浏览器记号目录(通常是从最近工作空间重开):无法用绝对路径重扫,
-  // 只能提示用户在「模型类型抽取」页重新选目录。
+  // 无 pendingModel 且是浏览器记号目录(通常是从最近工作空间重开):无法用绝对路径重扫。
   if (ws.modelRoot.startsWith(BROWSER_MARK)) {
     c.warning("import", "浏览器模式无法用记号目录重扫,请在「模型类型抽取」页重新选择目录");
     return;
@@ -151,7 +132,6 @@ async function autoScanModel() {
   if (res && res.contents.length) {
     const r = ingestScannedModel(res);
     reportIngest(res.root, r);
-    await refreshMcrTemplates(res.root);
     tab.value = "overview";
   } else if (res) {
     c.warning("import", `模型目录无 .cmp:${res.root}`);
@@ -294,7 +274,6 @@ async function openWorkspace() {
       const r = ingestScannedModel(res);
       reportIngest(res.root, r);
     }
-    await refreshMcrTemplates(ws.modelRoot);
   }
   c.success("import", `已打开工作空间:${ws.workspaceName}`);
 }

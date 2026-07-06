@@ -301,29 +301,6 @@ export async function scanScenarios(
   return null;
 }
 
-/** 扫描 <modelRoot>/ModelDatabase/FZMCR/**\/*.mcr(Tauri);浏览器返回 null,提示需桌面端。 */
-export interface ScannedMcrFile {
-  path: string;
-  templateName: string;
-  category: string;
-  xml: string;
-}
-export async function scanMcrTemplates(root: string): Promise<ScannedMcrFile[] | null> {
-  const res = await invokeOpt<{
-    root: string;
-    templates: { template_name: string; category: string; path: string; xml: string }[];
-    missing: boolean;
-  }>("scan_mcr", { root });
-  if (!res.ok) return null;
-  if (res.data.missing) return [];
-  return res.data.templates.map((t) => ({
-    path: t.path,
-    templateName: t.template_name,
-    category: t.category,
-    xml: t.xml,
-  }));
-}
-
 /** 读取指定路径文本(Tauri);浏览器返回 null。 */
 export async function readPathText(path: string): Promise<string | null> {
   const res = await invokeOpt<{ name: string; content: string }>("read_text_path", { path });

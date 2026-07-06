@@ -56,37 +56,13 @@ async function scan() {
   c.success("publish", `扫描到 ${list.length} 个想定`);
 }
 
-/**
- * 场景挂接前不引入 Unit 概念,树里只有 templateId(McrTemplate)。
- * pickScenario 时用 currentTreeTemplate.componentClasses 与每个 Unit.components 的类集合
- * 求交集,把命中最多的一条预选给 selUnit,给用户一个合理起点(可自由覆写)。
- * 无模板 / 无交集 → 不预选。
- */
-function suggestUnit(list: ScenarioUnit[]): ScenarioUnit | null {
-  const tpl = ws.currentTreeTemplate;
-  if (!tpl || list.length === 0) return null;
-  const need = new Set(tpl.componentClasses);
-  if (need.size === 0) return null;
-  let best: ScenarioUnit | null = null;
-  let bestScore = 0;
-  for (const u of list) {
-    const have = new Set(u.components.map((c) => c.className));
-    let score = 0;
-    for (const cn of have) if (need.has(cn)) score++;
-    if (score > bestScore) { bestScore = score; best = u; }
-  }
-  return bestScore > 0 ? best : null;
-}
-
 async function pickScenario(s: ScenarioRef, contentOverride?: string) {
   selScenario.value = s;
   const content = contentOverride ?? (await readPathText(s.sdataPath)) ?? "";
   sdataXml.value = content;
   units.value = parseScenarioUnits(content);
-  const hint = suggestUnit(units.value);
-  selUnit.value = hint;
-  if (hint) c.info("publish", `场景 ${s.name}:${units.value.length} 个实体;按模板预选 ${hint.name}`);
-  else c.info("publish", `场景 ${s.name}:${units.value.length} 个实体`);
+  selUnit.value = null;
+  c.info("publish", `场景 ${s.name}:${units.value.length} 个实体`);
 }
 
 /** 关联:把树中每个节点的 className 解析到该实体对应组件的 componentId。 */

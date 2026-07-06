@@ -51,33 +51,15 @@ const nodeIssues = computed(() => ws.issues.filter((i) => i.nodeId === node.valu
 // 同上注释:读节点字段的 computed 必须显式订阅 ws.rev,否则 Object.assign 就地
 // mutation 不会触发下游 <select :value="nodeClass"> 更新。
 const nodeClass = computed(() => { void ws.rev; return node.value?.targetSelector?.modelClass ?? ""; });
-// 类下拉:若当前树 Root 绑了实体模板,则只列该模板挂载的组件类;否则全量。
-// 模板未选 → 保持"通用树"体验(全量类目);模板已选 → 收敛用户注意力到相关组件类,
-// 防止在几十上百个类里错选。ws.filteredClasses 已在 store 侧根据 currentTreeTemplate 派生。
-const modelClasses = computed(() => { void ws.rev; return ws.filteredClasses; });
+// 类/方法下拉:全量取自类型空间(ws.classes / ws.functionCatalog.functions)。
+// Root 不再绑模板;完整性由"场景挂接"页对选定 Unit 的组件集做闸门校验(validateTreeForUnit)。
+const modelClasses = computed(() => { void ws.rev; return ws.classes; });
 const methodsForClass = computed(() => {
   void ws.rev;
   const cls = nodeClass.value;
   if (!cls) return [];
-  // 不按 action/condition 分类过滤:条件节点也可以选动作类方法,只看返回值/输出字段判定。
-  // 同样按模板过滤:模板已选 → 只保留 ownerClass ∈ 模板.componentClasses 的函数。
-  return ws.filteredFunctions.filter((f) => functionOwnerClass(f) === cls);
+  return ws.functionCatalog.functions.filter((f) => functionOwnerClass(f) === cls);
 });
-
-// Root 属性面板专用:模板下拉候选(全部想定派生的模板)+ 当前树绑定的模板 id。
-const isRoot = computed(() => node.value?.nodeType === "Root");
-const rootTemplateId = computed(() => { void ws.rev; return ws.currentTree?.templateId ?? ""; });
-const templateOptions = computed(() => { void ws.rev; return ws.mcrTemplates; });
-function setRootTemplate(id: string) { ws.setTreeTemplate(id); }
-
-// 叶子节点(Action/Condition/...) 层级链:
-//   模板已选 → 从模板挂载的组件中选一个 → 再选该组件类下的函数
-//   模板未选 → 降级到"从类目里选类" → 再选该类下的函数
-// 组件维度胜过类维度,因为组件 id 是老引擎运行时定位组件实例的唯一依据 —— 直接选组件
-// 就同时锁定了 modelClass 和 componentId,场景挂接时不再需要 className→componentId 回填。
-const hasTemplate = computed(() => !!ws.currentTreeTemplate);
-const templateComponents = computed(() => { void ws.rev; return ws.currentTreeTemplate?.components ?? []; });
-const nodeComponentId = computed(() => { void ws.rev; return node.value?.targetSelector?.componentId ?? ""; });
 
 const stateOptions = computed(() => {
   void ws.rev;
@@ -132,17 +114,6 @@ function setNodeClass(className: string) {
   if (!n) return;
   ws.run({ kind: "UpdateNodeProperty", nodeId: n.nodeId,
     patch: { targetSelector: { ...(n.targetSelector ?? {}), modelClass: className, componentId: undefined }, functionRef: "", inputBindings: [], outputBindings: [] } });
-}
-
-// 组件下拉:传入 componentId(可能为空 = 清空)。同一模板里组件 id 唯一,据此定位 className。
-// 一次性写入 modelClass + componentId,叶子节点就完整锁定到具体组件实例。
-function setNodeComponent(componentId: string) {
-  const n = node.value;
-  if (!n) return;
-  const comp = templateComponents.value.find((c) => c.componentId === componentId);
-  const modelClass = comp?.className ?? "";
-  ws.run({ kind: "UpdateNodeProperty", nodeId: n.nodeId,
-    patch: { targetSelector: { ...(n.targetSelector ?? {}), modelClass, componentId: componentId || undefined }, functionRef: "", inputBindings: [], outputBindings: [] } });
 }
 
 function bindMethod(methodName: string) {
@@ -242,52 +213,15 @@ function setOutputVar(bindingIndex: number, variableId: string) {
       </div>
     </div>
 
-    <!-- Root 专属:实体模板选择器。模板来源 = <modelRoot>/ModelDatabase/FZMCR 里的 .mcr 文件。
-         选中即把 tree.templateId 写回,叶子节点的组件/函数下拉自动收敛到模板挂载的组件范围。
-         挂载前无 Unit 概念 —— 挂接时才把模板软匹配到想定里的具体实体。 -->
-    <div v-if="isRoot" class="form bind-block">
-      <div v-if="!templateOptions.length" class="bind-hint">
-        <span class="tag muted-2">未派生模板</span>
-        当前工作空间还没扫到 .mcr。请在工作空间配置好 modelRoot,或确认 <code>ModelDatabase/FZMCR/</code> 有 .mcr 文件。
-      </div>
-      <label class="field">
-        <span class="lbl">实体模板</span>
-        <select class="select" :value="rootTemplateId" @change="setRootTemplate(($event.target as HTMLSelectElement).value)">
-          <option value="">— 通用(不绑模板,类下拉全量)—</option>
-          <option v-for="t in templateOptions" :key="t.templateId" :value="t.templateId">
-            <template v-if="t.category">{{ t.category }} / </template>{{ t.templateName }}
-            ({{ t.componentClasses.length }} 组件<span v-if="t.cognitionClass"> · Cog: {{ t.cognitionClass }}</span><span v-if="t.unresolvedCount > 0"> · {{ t.unresolvedCount }} 未解析</span>)
-          </option>
-        </select>
-      </label>
-    </div>
-
-    <!-- 每节点 类→方法 绑定(Action/Condition/State 等)。类来自真实模型/用户类。
-         类型空间为空时不再隐藏这块 UI(否则用户看不到可以做什么),而是加一条内嵌引导横幅。
-         模板已选但过滤后为空 → 单独提示"模板组件均未抽取",引导用户去抽取页补齐。 -->
+    <!-- 叶子节点 类→方法 绑定(Action/Condition/State 等)。类/方法均取自类型空间(全量)。
+         挂接时才校验 (className, functionRef) 是否覆盖选定 Unit 的组件集(validateTreeForUnit),
+         全量匹配才允许写盘。 -->
     <div v-if="isFnNode" class="form bind-block">
-      <div v-if="modelClasses.length === 0 && ws.currentTreeTemplate" class="bind-hint">
-        <span class="tag warning">模板组件未抽取</span>
-        Root 已绑模板「<template v-if="ws.currentTreeTemplate.category">{{ ws.currentTreeTemplate.category }}/</template>{{ ws.currentTreeTemplate.templateName }}」,
-        但其挂载的组件类均未在类型空间。请到「模型类型抽取」勾选这些类。
-      </div>
-      <div v-else-if="modelClasses.length === 0" class="bind-hint">
+      <div v-if="modelClasses.length === 0" class="bind-hint">
         <span class="tag warning">类型空间为空</span>
         请到「工作空间 → 模型类型抽取」勾选真实模型类,或在「类型空间」新建类;届时下拉自动出现候选。
       </div>
-      <!-- 模板已选:组件优先。选组件 → 同时锁定 className + componentId(挂接免二次回填)。 -->
-      <label v-if="hasTemplate" class="field">
-        <span class="lbl">组件 (Component) <span class="req">*</span></span>
-        <select class="select" :value="nodeComponentId" @change="setNodeComponent(($event.target as HTMLSelectElement).value)">
-          <option value="">— 选择组件 —</option>
-          <option v-for="c in templateComponents" :key="c.componentId" :value="c.componentId">
-            {{ c.className }}<template v-if="c.componentType"> · {{ c.componentType }}</template>
-            <template v-if="c.componentId"> ({{ c.componentId.slice(0, 8) }})</template>
-          </option>
-        </select>
-      </label>
-      <!-- 模板未选:降级到类下拉,保持"通用树"体验。 -->
-      <label v-else class="field">
+      <label class="field">
         <span class="lbl">类 (Class) <span class="req">*</span></span>
         <select class="select" :value="nodeClass" @change="setNodeClass(($event.target as HTMLSelectElement).value)">
           <option value="">— 选择类 —</option>
@@ -304,11 +238,6 @@ function setOutputVar(bindingIndex: number, variableId: string) {
             {{ m.displayName || m.name }} ({{ m.category }})
           </option>
         </select>
-      </label>
-      <label class="field">
-        <span class="lbl">组件 componentId <span class="muted-2 hint">(挂接场景时由实体回填)</span></span>
-        <input class="input" :value="node.targetSelector?.componentId ?? ''"
-          @input="patch({ targetSelector: { ...(node.targetSelector ?? {}), componentId: ($event.target as HTMLInputElement).value } })" />
       </label>
     </div>
 
