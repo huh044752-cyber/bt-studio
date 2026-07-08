@@ -401,7 +401,12 @@ function onTreeFoldToggle(treeId: string, ev: Event) {
 .grid { display: flex; gap: 4px; flex: 1; min-height: 0; min-width: 0; }
 .grid > .panel { flex: 1 1 0; min-width: 0; overflow: auto; }
 .grid > .panel.c1 { flex: 0 0 260px; }
-.grid > .panel.assembly { flex: 1.4 1 0; }
+/* 中列(组装台):列本身不滚,让内部 .fold-b.unit-card 承担独立滚动 —— 避免"整列一起滚"看不到深处的批量校验。 */
+.grid > .panel.assembly { flex: 1.4 1 0; overflow: hidden; display: flex; flex-direction: column; }
+.panel.assembly > .empty.pad { flex: 0 0 auto; }
+.panel.assembly > .fold { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.panel.assembly > .fold > .fold-t { flex: 0 0 auto; }
+.panel.assembly > .fold > .fold-b.unit-card { flex: 1; min-height: 0; overflow-y: auto; }
 .panel { padding: 10px; }
 .col { display: flex; flex-direction: column; gap: 8px; }
 

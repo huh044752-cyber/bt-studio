@@ -151,12 +151,31 @@ describe("完整工程生成:依赖库 runtime + 类型实现 types", () => {
     const tc = files.find((f) => f.path === "tests/tick_check.cpp")!.content;
     expect(tc).toContain("BT::BTXmlLoader");
     expect(tc).toContain("behaviors/main_tree.bt.xml");
-    expect(tc).toContain("CheckTree(");
     expect(cmake).toContain("enable_testing()");
     expect(cmake).toContain("add_executable(tick_check tests/tick_check.cpp)");
     expect(cmake).toContain("add_test(NAME logic_check");
     // 顶层 CMake 条件性接入 engine-core/(fetchBundledRuntime 提供)
     expect(cmake).toContain("engine-core/CMakeLists.txt");
+
+    // 逐帧驱动 + 轨迹记录:tick_driver.h + trace_recorder.h/.cpp 都要生成
+    expect(paths).toContain("runtime/include/fosim/tick_driver.h");
+    expect(paths).toContain("runtime/include/fosim/trace_recorder.h");
+    expect(paths).toContain("runtime/src/trace_recorder.cpp");
+    const td = files.find((f) => f.path === "runtime/include/fosim/tick_driver.h")!.content;
+    expect(td).toContain("namespace TickDriver");
+    expect(td).toContain("DriveParallel");
+    expect(td).toContain("FrameHook");
+    const trh = files.find((f) => f.path === "runtime/include/fosim/trace_recorder.h")!.content;
+    expect(trh).toContain("class TraceRecorder");
+    expect(trh).toContain("WasVisitedAtFrame");
+    // tick_check.cpp 走 DriveParallel + 3 个保留块 + 首个用户类的 Agent 引用
+    expect(tc).toContain("TickDriver::DriveParallel");
+    expect(tc).toContain("TraceRecorder rec;");
+    expect(tc).toContain("BEGIN WRITING YOUR CODE tick_check_before");
+    expect(tc).toContain("BEGIN WRITING YOUR CODE tick_check_after");
+    expect(tc).toContain("BEGIN WRITING YOUR CODE tick_check_main");
+    expect(tc).toContain("dynamic_pointer_cast<MyAgent>");
+    expect(tc).toContain(`CyberAgentRegistry::instance().Get("MyAgent")`);
   });
 
   it("状态机:生成 FSM 运行时(loader+task)、*.fsm.xml、main 选择 FSM 分支", () => {

@@ -1803,19 +1803,166 @@ endforeach()` : "# (无用户类:${ns}_types 是 INTERFACE 库,无 static 注册
  *   FSM: 最终状态 != Running 或达到 maxFrames(有推进即视为正常;推不动会打印警告)
  * 返回非 0 表示至少一棵树/状态机未按预期终止,ctest 会 fail。
  */
+// ============ 可编排逐帧测试驱动 (tick_driver.h + trace_recorder.h/.cpp) ============
+// 让用户在 tick_check 里对每帧注入 Agent 字段 + 断言节点访问轨迹,不再"跑 200 帧看最终"。
+function tickDriverHeader(): string {
+  return `// 由 BT Studio 生成 —— 逐帧驱动:beforeFrame 改 Agent 字段,afterFrame 断言/记录。
+// 全 inline 头,DriveParallel 把并行 tick 循环包起来,替代 tick_check 里的原地死循环。
+#pragma once
+#include "fosim/bt_runtime.h"
+#include "fosim/fsm_runtime.h"
+#include <functional>
+#include <memory>
+#include <vector>
+
+namespace TickDriver {
+
+using FrameHook = std::function<bool(int frame)>;
+
+struct DriveResult {
+    int frames = 0;
+    bool userTerminated = false;         // beforeFrame/afterFrame 返回 false 提前结束
+    std::vector<BT::BTStatus>  btFinal;  // 每棵 BT 最后一次 Tick 的状态
+    std::vector<FSM::FSMStatus> fsmFinal;// 每台 FSM 最后一次 Tick 的状态
+};
+
+inline DriveResult DriveParallel(
+    std::vector<std::shared_ptr<BT::TreeTask>>& bts,
+    std::vector<std::shared_ptr<FSM::StateMachineTask>>& fsms,
+    int maxFrames,
+    const FrameHook& beforeFrame = {},
+    const FrameHook& afterFrame  = {})
+{
+    DriveResult r;
+    r.btFinal.assign(bts.size(), BT::BTStatus::Running);
+    r.fsmFinal.assign(fsms.size(), FSM::FSMStatus::Running);
+    int f = 0;
+    for (; f < maxFrames; ++f) {
+        if (beforeFrame && !beforeFrame(f)) { r.userTerminated = true; break; }
+        bool anyRunning = false;
+        for (std::size_t i = 0; i < bts.size(); ++i) {
+            if (r.btFinal[i] == BT::BTStatus::Running) {
+                r.btFinal[i] = bts[i]->Tick();
+                if (r.btFinal[i] == BT::BTStatus::Running) anyRunning = true;
+            }
+        }
+        for (std::size_t i = 0; i < fsms.size(); ++i) {
+            if (r.fsmFinal[i] == FSM::FSMStatus::Running) {
+                r.fsmFinal[i] = fsms[i]->Tick();
+                if (r.fsmFinal[i] == FSM::FSMStatus::Running) anyRunning = true;
+            }
+        }
+        if (afterFrame && !afterFrame(f))  { r.userTerminated = true; ++f; break; }
+        if (!anyRunning) { ++f; break; }
+    }
+    r.frames = f;
+    return r;
+}
+
+} // namespace TickDriver
+`;
+}
+
+function traceRecorderHeader(): string {
+  return `// 由 BT Studio 生成 —— 内存版 trace sink,记录"哪个树哪一帧访问了哪个节点"。
+// 与运行时的 BTTraceSink 挂钩:Attach() 会把 SetTraceSink 换成 recorder 的 sink;
+// 每次 Tick 时,recorder 用 SetFrame() 里的 frame 打时间戳。
+#pragma once
+#include "fosim/bt_runtime.h"
+#include <memory>
+#include <string>
+#include <vector>
+
+struct TraceRecord {
+    std::string tree;
+    std::string node;      // BTNodeDef::name
+    int nodeId = 0;        // BTNodeDef::id
+    int frame  = -1;
+    BT::BTStatus statusAfter = BT::BTStatus::Invalid;
+    bool entered = false;
+    bool exited  = false;
+};
+
+class TraceRecorder {
+public:
+    // 挂上所有 BT 的 sink;后续任何 tick 都会写入 records_。多个 recorder 会互相覆盖(单一 sink 槽)。
+    void Attach(const std::vector<std::shared_ptr<BT::TreeTask>>& bts);
+    void SetFrame(int f) { frame_ = f; }
+
+    bool WasVisited(const std::string& tree, const std::string& node) const;
+    bool WasVisitedAtFrame(const std::string& tree, const std::string& node, int f) const;
+    int  VisitCount(const std::string& tree, const std::string& node) const;
+    const std::vector<TraceRecord>& All() const { return records_; }
+    void Clear() { records_.clear(); }
+
+private:
+    std::vector<TraceRecord> records_;
+    int frame_ = -1;
+};
+`;
+}
+
+function traceRecorderCpp(): string {
+  return `// 由 BT Studio 生成 —— 见头文件说明。
+#include "fosim/trace_recorder.h"
+
+void TraceRecorder::Attach(const std::vector<std::shared_ptr<BT::TreeTask>>& bts) {
+    // 单一全局 sink 槽:装最后一个 recorder;多 recorder 场景请自己合并(通常测试里 1 个就够)。
+    BT::BTTraceSink sink = [this](const BT::BTTraceEvent& ev) {
+        TraceRecord r;
+        if (ev.tree && !ev.tree->name.empty()) r.tree = ev.tree->name;
+        if (ev.node) { r.node = ev.node->name; r.nodeId = ev.node->id; }
+        r.frame       = frame_;
+        r.statusAfter = ev.after;
+        r.entered     = ev.entered;
+        r.exited      = ev.exited;
+        records_.push_back(std::move(r));
+    };
+    for (auto& t : bts) if (t) t->SetTraceSink(sink);
+}
+
+bool TraceRecorder::WasVisited(const std::string& tree, const std::string& node) const {
+    for (const auto& r : records_) if (r.tree == tree && r.node == node) return true;
+    return false;
+}
+bool TraceRecorder::WasVisitedAtFrame(const std::string& tree, const std::string& node, int f) const {
+    for (const auto& r : records_) if (r.tree == tree && r.node == node && r.frame == f) return true;
+    return false;
+}
+int TraceRecorder::VisitCount(const std::string& tree, const std::string& node) const {
+    int n = 0;
+    for (const auto& r : records_) if (r.tree == tree && r.node == node) ++n;
+    return n;
+}
+`;
+}
+
 function tickCheckCpp(ns: string, behaviorNames: { name: string; kind: "bt" | "sm" }[], userClassNames: string[]): string {
   const inc = userClassNames.map((c) => `#include "${ns}/${c}.h"`).join("\n");
   const bts = behaviorNames.filter((b) => b.kind === "bt");
   const fsms = behaviorNames.filter((b) => b.kind === "sm");
   const listBt = bts.map((b) => `        "behaviors/${b.name}.bt.xml",`).join("\n");
   const listFsm = fsms.map((b) => `        "behaviors/${b.name}.fsm.xml",`).join("\n");
+  // 首个用户类:测试代码里最常用到,直接暴露一个 shared_ptr 变量给 hook 用。
+  const primaryClass = userClassNames[0] ?? "";
+  const primaryVar = primaryClass ? primaryClass.charAt(0).toLowerCase() + primaryClass.slice(1) : "";
+  const agentGrabBlock = primaryClass
+    ? `    // 首个用户类的 Agent 引用,给 tick_check_before/after 用来读写 public 字段驱动分支。
+    auto ${primaryVar} = std::dynamic_pointer_cast<${primaryClass}>(
+        CyberAgentRegistry::instance().Get("${primaryClass}"));\n`
+    : `    // (无用户类,无 Agent 引用可用)\n`;
   return `// 由 BT Studio 生成 —— BT/FSM 逻辑校验自动化测试
 // 用法: 由 CMake ctest 自动调用;也支持从 build/Release 直接双击运行(自动上溯找 behaviors/)。
 //
 // !!! 保留用户代码:任何 ///<<< BEGIN WRITING YOUR CODE <tag> ... ///<<< END WRITING YOUR CODE <tag>
-//     区块的内容,再生成时不会被覆盖。若要新增自定义断言,请写在下面 main() 的 tick_check_main 块内。
+//     区块的内容,再生成时不会被覆盖。目前提供 3 个保留块:
+//       - tick_check_before:每帧 tick 之前跑,改 Agent 字段驱动分支(例如让传感器第 3 帧才 ok)
+//       - tick_check_after :每帧 tick 之后跑,用 TraceRecorder 断言"某帧命中某节点"
+//       - tick_check_main  :跑完所有帧后跑,做全局最终断言(旧接口保留)
 #include "fosim/bt_runtime.h"
 #include "fosim/fsm_runtime.h"
+#include "fosim/tick_driver.h"
+#include "fosim/trace_recorder.h"
 ${inc || "// (无用户类)"}
 #include <fstream>
 #include <sstream>
@@ -1932,33 +2079,47 @@ ${listFsm || "        // (无 FSM)"}
         std::cout << "[FSM] loaded " << resolved << " (" << t->StateCount() << " states)\\n";
     }
 
+    // 挂上"轨迹记录器":每次 leaf tick 会写入一条 TraceRecord(tree/node/frame/status)。
+    // 在 tick_check_after 里可用 rec.WasVisitedAtFrame("main_tree", "Fire", 12) 断言"某帧命中某节点"。
+    TraceRecorder rec;
+    rec.Attach(btTasks);
+
+${agentGrabBlock}
     // 关键:单帧循环并行 tick 所有 BT + 所有 FSM(和 main.cpp 一致的并行调度语义)。
     // 断点打在任一 Action 的 (agent->*fptr)(in, out) 上都能命中 —— 因为 leaf 会真的调用注册的函数指针。
     const int maxFrames = 200;
-    std::vector<BT::BTStatus> btSt(btTasks.size(), BT::BTStatus::Running);
-    std::vector<FSM::FSMStatus> fsmSt(fsmTasks.size(), FSM::FSMStatus::Running);
-    int frame = 0;
-    for (; frame < maxFrames; ++frame) {
-        bool anyRunning = false;
-        for (std::size_t i = 0; i < btTasks.size(); ++i) {
-            if (btSt[i] == BT::BTStatus::Running) {
-                btSt[i] = btTasks[i]->Tick();
-                if (btSt[i] == BT::BTStatus::Running) anyRunning = true;
-            }
-        }
-        for (std::size_t i = 0; i < fsmTasks.size(); ++i) {
-            if (fsmSt[i] == FSM::FSMStatus::Running) {
-                fsmSt[i] = fsmTasks[i]->Tick();
-                if (fsmSt[i] == FSM::FSMStatus::Running) anyRunning = true;
-            }
-        }
-        if (!anyRunning) break;
-    }
 
-    // 汇总断言:BT 未 Running(推完了)才算 pass;FSM 允许 Running(自旋)。
+    // beforeFrame:每帧 tick 之前跑,改 Agent 字段驱动分支(例如让传感器第 3 帧才 ok)。
+    // 返回 false 会立即终止循环。第一个 tick 之前 frame=0。
+    TickDriver::FrameHook beforeFrame = [&](int f) -> bool {
+        rec.SetFrame(f);
+        ///<<< BEGIN WRITING YOUR CODE tick_check_before
+        // 示例(取消注释使用,前提是首个用户类的类里添加了 public bool sensor_ok / CyberRealType range 字段):
+        // if (${primaryVar || "myAgent"}) { ${primaryVar || "myAgent"}->sensor_ok = (f >= 3); ${primaryVar || "myAgent"}->range = 5000.0 - f * 100.0; }
+        (void)f;
+        ///<<< END WRITING YOUR CODE tick_check_before
+        return true;
+    };
+
+    // afterFrame:每帧 tick 之后跑,做单帧级断言(比如"这一帧应该已经进 Sensor_Open")。
+    TickDriver::FrameHook afterFrame = [&](int f) -> bool {
+        ///<<< BEGIN WRITING YOUR CODE tick_check_after
+        // 示例(取消注释使用):
+        // if (f == 5 && !rec.WasVisited("main_tree", "Sensor_Open")) { std::cerr << "[FAIL] Sensor_Open not visited by frame 5\\n"; ++fails; }
+        (void)f;
+        ///<<< END WRITING YOUR CODE tick_check_after
+        return true;
+    };
+
+    auto driveResult = TickDriver::DriveParallel(btTasks, fsmTasks, maxFrames, beforeFrame, afterFrame);
+    const int frame = driveResult.frames;
+    const auto& btFinal  = driveResult.btFinal;
+    const auto& fsmFinal = driveResult.fsmFinal;
+
+    // 汇总:BT/FSM 最终状态(来自 DriveResult,recorder 里也有事件流)。
     for (std::size_t i = 0; i < btTasks.size(); ++i) {
-        std::cout << "[BT ] " << btNames[i] << " frame=" << frame << " status=" << BtStatusName(btSt[i]) << "\\n";
-        if (btSt[i] == BT::BTStatus::Running) {
+        std::cout << "[BT ] " << btNames[i] << " frame=" << frame << " status=" << BtStatusName(btFinal[i]) << "\\n";
+        if (btFinal[i] == BT::BTStatus::Running) {
             std::cerr << "[FAIL] " << btNames[i] << " still Running after " << maxFrames << " frames\\n";
             ++fails;
         }
@@ -1966,17 +2127,20 @@ ${listFsm || "        // (无 FSM)"}
     for (std::size_t i = 0; i < fsmTasks.size(); ++i) {
         std::cout << "[FSM] " << fsmNames[i] << " frame=" << frame
                   << " currentState=" << fsmTasks[i]->CurrentStateId()
-                  << " status=" << FsmStatusName(fsmSt[i]) << "\\n";
+                  << " status=" << FsmStatusName(fsmFinal[i]) << "\\n";
     }
 
     ///<<< BEGIN WRITING YOUR CODE tick_check_main
-    // 在此追加自定义断言(例如:检查某黑板值、拿 CyberAgentRegistry::instance().Get("XX") 调函数验证)。
-    // 本块内的代码在再生成时会被保留,不会被覆盖。
+    // 全局最终断言(所有帧跑完之后)。可用:
+    //   - rec.WasVisited(tree, node) / rec.VisitCount(tree, node) / rec.All()
+    //   - CyberAgentRegistry::instance().Get("XX")->字段
+    //   - btFinal[i] / fsmFinal[i] 最终状态
     ///<<< END WRITING YOUR CODE tick_check_main
 
     std::cout << "logic_check: " << (fails ? "FAIL" : "PASS")
               << " (BT=" << bts.size() << " FSM=" << sms.size()
-              << " frames=" << frame << ")\\n";
+              << " frames=" << frame
+              << " trace=" << rec.All().size() << " events)\\n";
     return fails;
 }
 `;
@@ -2049,6 +2213,9 @@ export function generateProject(input: ProjectGenInput): CppFile[] {
   files.push({ path: "runtime/src/bt_runtime.cpp", content: btRuntimeCpp() });
   files.push({ path: "runtime/include/fosim/fsm_runtime.h", content: fsmRuntimeHeader() });
   files.push({ path: "runtime/src/fsm_runtime.cpp", content: fsmRuntimeCpp() });
+  files.push({ path: "runtime/include/fosim/tick_driver.h", content: tickDriverHeader() });
+  files.push({ path: "runtime/include/fosim/trace_recorder.h", content: traceRecorderHeader() });
+  files.push({ path: "runtime/src/trace_recorder.cpp", content: traceRecorderCpp() });
   files.push({ path: "runtime/CMakeLists.txt", content: runtimeCmake() });
 
   // ② 类型实现 types/
