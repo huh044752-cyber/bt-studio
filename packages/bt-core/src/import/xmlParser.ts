@@ -86,7 +86,6 @@ export function importXmlToDesignTree(
   });
   tree.templateId = rootAttr["btTemplateId"] ?? rootAttr["templateId"];
   tree.modelId = rootAttr["modelId"];
-  tree.cognition = rootAttr["cognition"];
 
   const editorRootId = tree.rootNodeId;
   const restrictedTypes: string[] = [];
@@ -227,6 +226,16 @@ export function importXmlToDesignTree(
     const node = buildNode(be);
     tree.nodes[node.nodeId] = node;
     tree.nodes[editorRootId]!.childOrder.push(node.nodeId);
+  }
+
+  // Condition 已收敛为叶子(对齐 C++ 新引擎 bt_xml_loader:Condition must be leaf)。
+  // 老 .bt 里 <Condition><Action/><Action/></Condition> = AND 组合,与 Sequence 语义等价 →
+  // 导入时把带子 Condition 归一为 Sequence,保证结构合法。
+  for (const n of Object.values(tree.nodes)) {
+    if (n.nodeType === "Condition" && n.childOrder.length > 0) {
+      n.nodeType = "Sequence";
+      n.xmlType = "Sequence";
+    }
   }
 
   // 依据 childOrder 重建结构边(运行 XML 没有显式 edgeId,但画布渲染从 tree.edges 读)。

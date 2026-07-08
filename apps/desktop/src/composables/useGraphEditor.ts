@@ -12,12 +12,12 @@ import type { useWorkspaceStore } from "@/stores/workspace";
 import { describeNode } from "@/utils/nodeInfo";
 
 const COLOR: Record<string, string> = {
-  accent: "#5eb3ff",
-  "accent-2": "#f5b65c",
-  ok: "#47d6a4",
-  warn: "#f5b65c",
-  err: "#f06d6d",
-  muted: "#6f8598",
+  accent: "#4c8dff",
+  "accent-2": "#d29922",
+  ok: "#3fb950",
+  warn: "#d29922",
+  err: "#f85149",
+  muted: "#7d8590",
 };
 
 const nodeCellId = (id: string) => `ncell_${id}`;
@@ -106,14 +106,14 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
       Object.assign(tipEl.style, {
         position: "fixed",
         zIndex: "9999",
-        maxWidth: "300px",
-        padding: "8px 10px",
+        maxWidth: "320px",
+        padding: "10px 12px",
         borderRadius: "8px",
-        background: "rgba(18,26,38,0.96)",
-        border: "1px solid rgba(94,179,255,0.35)",
-        color: "#dfe9f5",
-        font: "12px/1.5 system-ui, sans-serif",
-        boxShadow: "0 6px 22px rgba(0,0,0,0.45)",
+        background: "#1a1f27",
+        border: "1px solid rgba(148,163,184,0.20)",
+        color: "#e6edf3",
+        font: "12px/1.55 -apple-system, 'Segoe UI', system-ui, sans-serif",
+        boxShadow: "0 12px 32px rgba(0,0,0,0.42)",
         pointerEvents: "none",
         whiteSpace: "normal",
         display: "none",
@@ -181,13 +181,13 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
       Object.assign(menuEl.style, {
         position: "fixed",
         zIndex: "10000",
-        minWidth: "132px",
+        minWidth: "140px",
         padding: "4px",
         borderRadius: "8px",
-        background: "rgba(18,26,38,0.98)",
-        border: "1px solid rgba(94,179,255,0.35)",
-        boxShadow: "0 8px 28px rgba(0,0,0,0.5)",
-        font: "12.5px/1.4 system-ui, sans-serif",
+        background: "#1a1f27",
+        border: "1px solid rgba(148,163,184,0.20)",
+        boxShadow: "0 12px 32px rgba(0,0,0,0.42)",
+        font: "12.5px/1.4 -apple-system, 'Segoe UI', system-ui, sans-serif",
         display: "none",
       } as CSSStyleDeclaration);
       document.body.appendChild(menuEl);
@@ -207,7 +207,7 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
       color: danger ? "#ff8a8a" : "#dfe9f5",
       whiteSpace: "nowrap",
     } as CSSStyleDeclaration);
-    it.addEventListener("mouseenter", () => (it.style.background = "rgba(94,179,255,0.12)"));
+    it.addEventListener("mouseenter", () => (it.style.background = "rgba(76,141,255,0.12)"));
     it.addEventListener("mouseleave", () => (it.style.background = "transparent"));
     it.addEventListener("mousedown", (ev) => {
       ev.preventDefault();
@@ -258,7 +258,7 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
       panning: { enabled: true, eventTypes: ["leftMouseDown"] },
       // 鼠标滚轮直接缩放(无需按 Ctrl);围绕指针缩放,体验对齐主流图编辑器。
       mousewheel: { enabled: true, factor: 1.1, minScale: 0.3, maxScale: 2.5, zoomAtMousePosition: true },
-      grid: { visible: true, type: "dot", size: 18, args: { color: "rgba(122,156,193,0.16)", thickness: 1 } },
+      grid: { visible: true, type: "dot", size: 20, args: { color: "rgba(148,163,184,0.14)", thickness: 1 } },
       connecting: {
         allowBlank: false,
         allowLoop: false,

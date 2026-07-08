@@ -98,85 +98,107 @@ const groups = computed(() => {
 <style scoped>
 .app-shell {
   display: grid;
-  grid-template-columns: 210px 1fr;
-  grid-template-rows: minmax(0, 1fr); /* 行高锁定到视口,子项可收缩 → 内部滚动而非整体溢出 */
+  grid-template-columns: 220px 1fr;
+  grid-template-rows: minmax(0, 1fr);
   height: 100%;
   overflow: hidden;
+  background: var(--surface-1);
 }
 .sidebar {
   display: flex;
   flex-direction: column;
-  border-right: 1px solid var(--line-soft);
-  background: linear-gradient(180deg, rgba(10, 18, 28, 0.96), rgba(6, 12, 20, 0.96));
-  padding: 12px 10px;
-  gap: 12px;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+  padding: 14px 10px 10px;
+  gap: 14px;
 }
 .brand {
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 0 4px 2px;
 }
 .logo {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--accent), #2c6da3);
-  font-weight: 800;
-  color: #04121f;
+  border-radius: 8px;
+  background: var(--accent);
+  font-weight: 700;
+  font-size: 12px;
+  color: #fff;
+  letter-spacing: 0.5px;
+  box-shadow: var(--shadow-1);
 }
 .brand-title {
-  font-weight: 700;
-  font-size: 15px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  letter-spacing: 0.1px;
 }
 .brand-sub {
   font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 1px;
 }
 .mode-pill {
   font-size: 11px;
   padding: 4px 9px;
-  border-radius: 7px;
-  border: 1px solid var(--line-soft);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: var(--surface-2);
+  color: var(--text-secondary);
   text-align: center;
+  font-weight: 500;
 }
 .mode-pill.linked_fosim {
-  color: var(--accent-2);
-  border-color: rgba(245, 182, 92, 0.4);
+  color: var(--warn);
+  border-color: rgba(210, 153, 34, 0.35);
+  background: var(--warn-soft);
 }
 .nav {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  padding-right: 2px;
 }
 .nav-group-title {
   font-size: 10px;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin: 2px 4px 4px;
+  letter-spacing: 0.7px;
+  margin: 2px 6px 4px;
+  color: var(--text-tertiary);
+  font-weight: 600;
 }
 .nav-item {
   display: block;
   padding: 6px 10px;
-  border-radius: 7px;
-  color: var(--muted);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
   font-size: 12.5px;
-  margin-bottom: 2px;
+  margin-bottom: 1px;
+  transition: background 0.1s ease, color 0.1s ease;
+  border: 1px solid transparent;
 }
 .nav-item:hover {
-  background: rgba(94, 179, 255, 0.07);
-  color: var(--text);
+  background: var(--surface-3);
+  color: var(--text-primary);
 }
 .nav-item.active {
-  background: rgba(94, 179, 255, 0.14);
-  color: #fff;
-  border: 1px solid rgba(94, 179, 255, 0.3);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
 }
 .sidebar-foot {
   font-size: 11px;
-  border-top: 1px solid var(--line-soft);
-  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 10px;
+  color: var(--text-tertiary);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 .sidebar-foot .err {
   color: var(--err);
@@ -185,20 +207,21 @@ const groups = computed(() => {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 0; /* grid 子项允许收缩,避免被内容撑高 */
+  min-height: 0;
   height: 100%;
   overflow: hidden;
+  background: var(--surface-1);
 }
 .page-area {
   flex: 1;
   min-height: 0;
   min-width: 0;
   padding: 12px;
-  overflow: hidden; /* 页面本身不滚动;由各页内部的 .scroll 区域滚动 */
+  overflow: hidden;
 }
 .console-area {
   position: relative;
-  flex: none; /* 固定在底部,始终可见,不被页面内容挤走 */
+  flex: none;
   padding: 0 12px 12px;
   min-height: 36px;
 }
@@ -207,12 +230,12 @@ const groups = computed(() => {
   top: -3px;
   left: 12px;
   right: 12px;
-  height: 7px;
+  height: 6px;
   cursor: row-resize;
   z-index: 5;
+  border-radius: 3px;
 }
 .console-resizer:hover {
-  background: rgba(94, 179, 255, 0.3);
-  border-radius: 3px;
+  background: var(--accent-soft);
 }
 </style>

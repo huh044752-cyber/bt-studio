@@ -139,12 +139,9 @@ export interface DesignTree {
   mode: StudioMode;
   /** 行为树 / 状态机(默认 behavior_tree)。 */
   projectKind?: ProjectKind;
-  /** 根类名(根类函数绑定模型:Action/Condition 函数来自该类)。 */
-  rootClassName?: string;
   templateId?: string;
   modelId?: string;
   projectType?: string;
-  cognition?: string;
   rootNodeId: string;
   /** nodeId -> DesignNode */
   nodes: Record<string, DesignNode>;

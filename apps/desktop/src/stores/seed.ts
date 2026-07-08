@@ -15,9 +15,12 @@ export function seedWorkspace(): void {
   ws.functionCatalog.functions = sampleFunctions();
   // baseClass 字段已弃用:生成代码统一直接继承 CyberDecisionAgentBase,不再展示业务基类前缀。
   ws.classes.push(
-    { classId: "cls_air", className: "CyberAirFighter", displayName: "战机 CyberAirFighter", category: "RuleDecision", hostModule: "air", source: "model" },
-    { classId: "cls_jam", className: "CyberComRadioJam", displayName: "通信干扰 CyberComRadioJam", category: "Jammers", hostModule: "ew", source: "model" },
-    { classId: "cls_sensor", className: "CyberSensor", displayName: "传感器 CyberSensor", category: "Sensors", hostModule: "avionic", source: "model" },
+    { classId: "cls_air", className: "CyberAirFighter", displayName: "战机 CyberAirFighter", category: "RuleDecision", hostModule: "air", source: "model",
+      description: "战机认知类:承载空战规则决策(交战/撤退/巡逻),对齐 CyberCognitionImpl 派生。" },
+    { classId: "cls_jam", className: "CyberComRadioJam", displayName: "通信干扰 CyberComRadioJam", category: "Jammers", hostModule: "ew", source: "model",
+      description: "电子战通信干扰类:发射机侧干扰目标通信频段。" },
+    { classId: "cls_sensor", className: "CyberSensor", displayName: "传感器 CyberSensor", category: "Sensors", hostModule: "avionic", source: "model",
+      description: "机载传感器(雷达/光电):提供扫描、校准、目标截获接口。" },
   );
 
   const bb = createBlackboard("空战全局板", "global", { blackboardId: "nd_air_global" });

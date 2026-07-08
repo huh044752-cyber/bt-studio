@@ -69,7 +69,6 @@ export interface CreateTreeOptions {
   displayName?: string;
   mode?: StudioMode;
   projectKind?: import("../types/editor.js").ProjectKind;
-  rootClassName?: string;
   withRoot?: boolean;
 }
 
@@ -86,7 +85,6 @@ export function createTree(opts: CreateTreeOptions): DesignTree {
     description: "",
     mode: opts.mode ?? "standalone",
     projectKind: opts.projectKind ?? "behavior_tree",
-    rootClassName: opts.rootClassName,
     rootNodeId: "",
     nodes: {},
     edges: {},

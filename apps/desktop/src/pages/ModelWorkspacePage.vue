@@ -14,13 +14,15 @@ const c = useConsoleStore();
 const createOpen = ref(false);
 const createType = ref<"class" | "enum">("class");
 const createName = ref("");
-function openCreate(t: "class" | "enum") { createType.value = t; createName.value = ""; createOpen.value = true; }
+const createDesc = ref("");
+function openCreate(t: "class" | "enum") { createType.value = t; createName.value = ""; createDesc.value = ""; createOpen.value = true; }
 function confirmCreate() {
   const name = createName.value.trim();
+  const desc = createDesc.value.trim();
   if (!name) { c.warning("import", "名称为空"); return; }
   if (createType.value === "class") {
     if (ws.classes.find((x) => x.className === name)) { c.warning("import", "类名重名"); return; }
-    ws.classes.push({ classId: prefixedId("class"), className: name, displayName: name, category: "user", hostModule: "", source: "user" });
+    ws.classes.push({ classId: prefixedId("class"), className: name, displayName: name, category: "user", hostModule: "", source: "user", description: desc || undefined });
     c.success("import", `新建用户类 ${name}`);
   } else {
     if (ws.enums.find((x) => x.name === name)) { c.warning("import", "枚举名重名"); return; }
@@ -255,6 +257,7 @@ function collapseAll(v: boolean) {
             <span class="ico">▧</span>
             <input class="input tiny inl name-in" v-model="a.cls.displayName" placeholder="显示名" />
             <code class="cls-name">{{ a.cls.className }}</code>
+            <input class="input tiny inl desc-in" v-model="a.cls.description" placeholder="备注:类用途,鼠标悬停节点时显示" />
             <span class="src-tag" :class="a.cls.source === 'user' ? 'user' : 'model'">{{ a.cls.source === "user" ? "用户" : "模型" }}</span>
             <!-- baseClass 曾展示为"模型 : CyberCognitionImpl",但生成代码统一继承 CyberDecisionAgentBase,该标签会误导用户。已移除。 -->
             <span class="spacer" />
@@ -349,6 +352,10 @@ function collapseAll(v: boolean) {
         <span>{{ createType === "class" ? "类名 (className)" : "枚举名" }}</span>
         <input class="input" v-model="createName" :placeholder="createType === 'class' ? 'MyAgent' : 'MyEnum'" @keyup.enter="confirmCreate" />
       </label>
+      <label v-if="createType === 'class'" class="dlg-fld">
+        <span>备注(description)</span>
+        <input class="input" v-model="createDesc" placeholder="类用途说明,鼠标悬停节点时显示" @keyup.enter="confirmCreate" />
+      </label>
       <div class="muted-2" style="font-size: 11px">
         {{ createType === "class" ? "用户新建类(source=user)将生成完整可编译 C++(继承 BT::Agent)。" : "枚举创建后可在右栏添加枚举项。" }}
       </div>
@@ -373,9 +380,8 @@ function collapseAll(v: boolean) {
 .zoomgrp { display: inline-flex; align-items: center; gap: 4px; }
 .zlbl { font-size: 11px; color: var(--muted-2); min-width: 36px; text-align: center; }
 .caret { cursor: pointer; width: 14px; display: inline-block; color: var(--muted); user-select: none; }
-.input.tiny { height: 24px; font-size: 11px; }
+/* .input.tiny/.select.tiny 高度/字号统一由 theme.css 提供(30px/12px)。 */
 .input.tiny.inl { width: 130px; display: inline-block; }
-.select.tiny { height: 24px; font-size: 11px; }
 .chk { font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
 .dlg-fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 .dlg-fld > span { color: var(--muted); }
@@ -405,6 +411,7 @@ function collapseAll(v: boolean) {
 .card-head .ico { color: var(--accent); font-size: 13px; }
 .card.enum .card-head .ico { color: var(--accent-2, #f5b65c); }
 .name-in { width: 116px; font-weight: 600; }
+.desc-in { flex: 1 1 auto; min-width: 120px; max-width: 380px; font-style: italic; }
 .cls-name { font-size: 11px; color: var(--muted); background: rgba(122, 156, 193, 0.12); padding: 1px 6px; border-radius: 5px; }
 .src-tag { font-size: 9.5px; padding: 1px 6px; border-radius: 999px; }
 .src-tag.user { background: rgba(71, 214, 164, 0.16); color: var(--ok, #47d6a4); }

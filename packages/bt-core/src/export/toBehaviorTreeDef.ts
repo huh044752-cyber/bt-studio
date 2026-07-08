@@ -121,7 +121,6 @@ export function toBehaviorTreeDef(tree: DesignTree, opts: ToDefOptions = {}): Be
     projectType: FOSIM_PROJECT_TYPE,
     behaviorTreeTemplateId: tree.templateId ?? "",
     modelId: tree.modelId ?? "",
-    cognition: tree.cognition ?? "",
     blackboards,
     root,
     nodesById,

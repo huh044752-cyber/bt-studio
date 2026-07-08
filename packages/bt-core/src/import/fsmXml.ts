@@ -67,17 +67,18 @@ export function parseFsmXml(xml: string, registry: NodeRegistry = defaultRegistr
 
     const nodeId = newNodeId();
     if (sid) idToNodeId.set(sid, nodeId);
+    // 新格式统一:类绑定只读 className,不再兼容 cognition/mdataName;
+    // componentId 由挂接流程写到 sdata,不属于工作空间层,导入时忽略。
+    const cls = a["className"];
     const node: DesignNode = {
       nodeId,
       nodeType: "State",
       xmlType: "State",
-      name: a["name"] ?? "状态",
+      name: a["name"] ?? a["action"] ?? a["function"] ?? "状态",
       functionRef: a["action"] ?? a["function"],
       subtreeRef: a["behaviac_tree"],
       endStatusSuccess: (a["IsEndState"] ?? "").toLowerCase() === "true",
-      targetSelector: a["mdataName"] || a["className"]
-        ? { modelName: a["mdataName"], modelClass: a["className"], componentId: a["componentId"] }
-        : undefined,
+      targetSelector: cls ? { modelClass: cls } : undefined,
       inputBindings: [],
       outputBindings: [],
       childOrder: [],
@@ -135,19 +136,24 @@ export function parseFsmXml(xml: string, registry: NodeRegistry = defaultRegistr
     // 映射 XML 名到编辑器节点类型
     const nodeType = tag === "ConditionTransform" ? "ConditionTransition" : "StateTransition";
     const nodeId = newNodeId();
+    // 老 .sm 里转移一般没写 name(fight_status.sm 全无 name 属性):
+    //  1) 优先用 action/function 作 name(信息量最大,e.g. Fly_to_Fight_congition)
+    //  2) 否则回落中文 displayName("条件跳转"/"状态跳转"),避免画布"条件跳转\nConditionTransition"上下不齐。
+    const fallbackCn = nodeType === "ConditionTransition" ? "条件跳转" : "状态跳转";
+    const name = a["name"] ?? a["action"] ?? a["function"] ?? fallbackCn;
+    // 转移节点同 State:只读 className。
+    const tCls = a["className"];
     const node: DesignNode = {
       nodeId,
       nodeType,
       xmlType: tag,
-      name: a["name"] ?? nodeType,
+      name,
       functionRef: a["action"] ?? a["function"],
       script: a["conditionScript"],
       subtreeRef: a["btInstanceId"],
       compareOp: a["compareOp"],
       compareValue: a["compareValue"],
-      targetSelector: a["mdataName"] || a["className"]
-        ? { modelName: a["mdataName"], modelClass: a["className"], componentId: a["componentId"] }
-        : undefined,
+      targetSelector: tCls ? { modelClass: tCls } : undefined,
       inputBindings: [],
       outputBindings: [],
       childOrder: [],
@@ -188,9 +194,11 @@ export function parseFsmXml(xml: string, registry: NodeRegistry = defaultRegistr
           node.transitionTarget = idToNodeId.get(gotoId)!;
         }
       } else if (ctag === "State") {
-        // 嵌套 State:首次出现的目标状态,在设计模型里同样挂在 Root 下作为独立状态,
-        // 与之的关系用 transitionTarget 引用(Goto)表达,而非结构父子边。
-        const targetNodeId = parseState(c, editorRootId);
+        // 嵌套 State = 该转移的目标状态。设计模型里非入口 State 不做 Root 的结构子
+        // (Root.maxChildren=1,只挂入口 State;老代码把每个目标 State 都挂 Root 造成
+        // "Root 必须且只能有 1 个子节点,当前 N 个" 阻断挂接),只以 transitionTarget
+        // 引用可达 —— ValidationEngine.collectReachable 已沿 transitionTarget 链遍历。
+        const targetNodeId = parseState(c, "");
         node.transitionTarget = targetNodeId;
       }
     }

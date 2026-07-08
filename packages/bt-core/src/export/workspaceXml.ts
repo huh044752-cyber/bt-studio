@@ -6,7 +6,7 @@
  *     <Meta> ... (内联 meta.xml 的 <meta> 内容) ... </Meta>   -- 类型/Agent/枚举/结构体
  *     <GlobalBlackboards><Blackboard ...><Variable .../></Blackboard></GlobalBlackboards>
  *     <Behaviors>
- *       <Behavior name kind="behavior_tree" rootClass>...内联运行 XML...</Behavior>
+ *       <Behavior name kind="behavior_tree">...内联运行 XML...</Behavior>
  *       <Behavior name kind="state_machine">...内联 FSM XML...</Behavior>
  *     </Behaviors>
  *   </Workspace>
@@ -15,7 +15,7 @@
  */
 import type { DesignTree } from "../types/editor.js";
 import type { Blackboard, CatalogBundle } from "../types/catalog.js";
-import { xmlEscape, mapVariableType, DEFAULT_VARIABLE_TYPE } from "./xmlSerializer.js";
+import { xmlEscape, mapVariableType, DEFAULT_VARIABLE_TYPE, resolveVarValue } from "./xmlSerializer.js";
 import { serializeBehaviorTreeXml } from "./xmlSerializer.js";
 import { toBehaviorTreeDef } from "./toBehaviorTreeDef.js";
 import { serializeFsmXml } from "./fsmXml.js";
@@ -44,6 +44,8 @@ export interface WorkspaceConfig {
   cppNamespace?: string;
   /** 引擎源码根目录(拷贝真实 BT/FSM 运行时 + MAL 到工程 runtime/)。 */
   engineSrcDir?: string;
+  /** 工作空间 XML 自身在磁盘上的绝对路径(供"保存 XML"静默覆写,无需每次弹另存为)。 */
+  workspaceFilePath?: string;
   version?: number;
 }
 
@@ -64,7 +66,7 @@ export function serializeWorkspaceXml(ws: WorkspaceXmlInput): string {
   );
 
   // 配置(模型目录 / 导出目录 / 命名空间)—— 供"打开工作空间"恢复数据用。
-  const cfgAttrs = `${attr("modelRoot", cfg.modelRoot)}${attr("exportCodeDir", cfg.exportCodeDir)}${attr("cppNamespace", cfg.cppNamespace)}${attr("engineSrcDir", cfg.engineSrcDir)}`;
+  const cfgAttrs = `${attr("modelRoot", cfg.modelRoot)}${attr("exportCodeDir", cfg.exportCodeDir)}${attr("cppNamespace", cfg.cppNamespace)}${attr("engineSrcDir", cfg.engineSrcDir)}${attr("workspaceFilePath", cfg.workspaceFilePath)}`;
   lines.push(`  <Config${cfgAttrs} />`);
 
   // 内联 meta(去掉其 xml 声明)
@@ -81,8 +83,9 @@ export function serializeWorkspaceXml(ws: WorkspaceXmlInput): string {
     }
     lines.push(head);
     for (const v of bb.variables) {
+      const short = v.malType ? mapVariableType(malToXmlType(v.malType)) : DEFAULT_VARIABLE_TYPE;
       lines.push(
-        `      <Variable${attr("key", v.name)}${attr("id", v.variableId)}${attr("type", v.malType ? mapVariableType(malToXmlType(v.malType)) : DEFAULT_VARIABLE_TYPE)}${attr("value", v.defaultValue)}${attr("displayType", v.displayType)} />`,
+        `      <Variable${attr("key", v.name)}${attr("id", v.variableId)}${attr("type", short)} value="${xmlEscape(resolveVarValue(v.defaultValue, short))}"${attr("displayType", v.displayType)} />`,
       );
     }
     lines.push("    </Blackboard>");
@@ -93,8 +96,9 @@ export function serializeWorkspaceXml(ws: WorkspaceXmlInput): string {
   lines.push("  <Behaviors>");
   for (const tree of ws.trees) {
     const kind = tree.projectKind ?? "behavior_tree";
+    // <Behavior> 只用 name + kind 区分。类归属由内部每个叶子的 className 表达。
     lines.push(
-      `    <Behavior${attr("name", tree.treeName)} kind="${kind}"${attr("rootClass", tree.rootClassName)}>`,
+      `    <Behavior${attr("name", tree.treeName)} kind="${kind}">`,
     );
     try {
       const xml = kind === "state_machine" ? serializeFsmXml(tree) : serializeBehaviorTreeXml(toBehaviorTreeDef(tree));

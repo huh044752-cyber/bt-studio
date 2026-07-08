@@ -9,11 +9,18 @@ import { seedWorkspace } from "@/stores/seed";
 import {
   downloadText,
   readTextFile,
+  writeArtifact,
   writeProjectFiles,
   pickDirectory,
+  pickSaveFilePath,
   pickWritableDir,
   writeFilesToDirHandle,
+  writeToCachedSaveFile,
+  hasCachedSaveFile,
+  clearCachedSaveFile,
+  browserHasSaveFilePicker,
   readModelCmpFiles,
+  fetchBundledRuntime,
   isTauri,
   type FsDirHandle,
   type ScannedModelDir,
@@ -26,6 +33,14 @@ const c = useConsoleStore();
 
 const tab = ref<"overview" | "extract">("overview");
 
+/** 运行环境识别 —— 顶部环境条 + 各处兜底决策统一读这三个标志。 */
+const runMode = computed(() => {
+  if (isTauri()) return "tauri" as const;
+  if (browserHasSaveFilePicker()) return "browser-fs" as const;
+  return "browser-basic" as const;
+});
+const WS_SAVE_TAG = "workspace-xml";
+
 // 浏览器:已选的可写导出目录句柄(用它把生成代码真正写进该文件夹,而非下载)。
 const exportDirHandle = ref<FsDirHandle | null>(null);
 
@@ -35,11 +50,13 @@ type ExportTarget = "workspace-xml" | "cpp-project";
 const exportTarget = ref<ExportTarget>("cpp-project");
 
 // --- 配置对话框(共用 New / Edit)。引擎源码目录已移除:engine-core 不再默认导出,该字段无作用。 ---
-type CfgForm = { name: string; modelRoot: string; exportCodeDir: string; cppNamespace: string; language: "cpp" | "cs" };
+// workspaceFilePath = 工作空间 XML 的落盘绝对路径(打开/另存后回写);为空则"保存 XML"走另存为对话框。
+type CfgForm = { name: string; modelRoot: string; exportCodeDir: string; workspaceFilePath: string; cppNamespace: string; language: "cpp" | "cs" };
 const newOpen = ref(false);
 const cfgOpen = ref(false);
-const newCfg = ref<CfgForm>({ name: "workspace", modelRoot: "", exportCodeDir: "", cppNamespace: "btproj", language: "cpp" });
-const cfg = ref<CfgForm>({ name: "", modelRoot: "", exportCodeDir: "", cppNamespace: "btproj", language: "cpp" });
+const helpOpen = ref(false);
+const newCfg = ref<CfgForm>({ name: "workspace", modelRoot: "", exportCodeDir: "", workspaceFilePath: "", cppNamespace: "btproj", language: "cpp" });
+const cfg = ref<CfgForm>({ name: "", modelRoot: "", exportCodeDir: "", workspaceFilePath: "", cppNamespace: "btproj", language: "cpp" });
 
 /** 浏览器选目录拿不到绝对路径,store 里记 "browser::<name>" 标记;UI 自行解码展示。 */
 const BROWSER_MARK = "browser::";
@@ -56,6 +73,7 @@ function openNew() {
     name: "workspace",
     modelRoot: "",
     exportCodeDir: "",
+    workspaceFilePath: "",
     cppNamespace: "btproj",
     language: "cpp",
   };
@@ -65,10 +83,11 @@ async function confirmNew() {
   ws.newWorkspace(newCfg.value.name.trim() || "workspace");
   ws.modelRoot = newCfg.value.modelRoot;
   ws.exportCodeDir = newCfg.value.exportCodeDir;
+  ws.workspaceFilePath = newCfg.value.workspaceFilePath;
   ws.cppNamespace = newCfg.value.cppNamespace || "btproj";
   ws.language = newCfg.value.language;
   newOpen.value = false;
-  await autoScanModel();
+  if (ws.modelRoot) await autoScanModel();
 }
 
 function openCfg() {
@@ -76,21 +95,25 @@ function openCfg() {
     name: ws.workspaceName,
     modelRoot: ws.modelRoot,
     exportCodeDir: ws.exportCodeDir,
+    workspaceFilePath: ws.workspaceFilePath,
     cppNamespace: ws.cppNamespace,
     language: ws.language,
   };
   cfgOpen.value = true;
 }
 async function applyCfg() {
-  const modelChanged = cfg.value.modelRoot !== ws.modelRoot;
   ws.workspaceName = cfg.value.name.trim() || ws.workspaceName;
   ws.modelRoot = cfg.value.modelRoot;
   ws.exportCodeDir = cfg.value.exportCodeDir;
+  ws.workspaceFilePath = cfg.value.workspaceFilePath;
   ws.cppNamespace = cfg.value.cppNamespace || "btproj";
   ws.language = cfg.value.language;
   cfgOpen.value = false;
   c.success("workspace", `工作空间配置已更新:${ws.workspaceName}`);
-  if (modelChanged) await autoScanModel();
+  // 客户预期"配了目录就自动扫描" —— 不再判断是否改动,只要有 modelRoot 就重扫。
+  // autoScanModel 内部对同路径重扫是安全的(读取 .cmp 幂等),
+  // 也覆盖"用户填了默认路径没触发变更"这种边界。
+  if (ws.modelRoot) await autoScanModel();
 }
 
 // 浏览器选目录时一次性读到的扫描结果,暂存以便"确定"后走 ingest 全流程(避免再次弹选择框)。
@@ -158,6 +181,79 @@ async function pickModelDir(target: "new" | "cfg") {
   c.info("import", `已选目录 ${res.root}:${res.contents.length} 个 .cmp(确定即抽取)`);
 }
 
+/**
+ * 弹"另存为"对话框选"工作空间文件保存路径"(.workspace.xml)。
+ * 三种运行模式的表现:
+ *   - Tauri:原生对话框,拿到绝对路径写回表单
+ *   - 浏览器(Chromium):File System Access API 弹原生对话框,拿到 FileHandle 缓存,展示 "browser::文件名"
+ *   - 浏览器(不支持 showSaveFilePicker,如 Firefox/Safari):console 提示手动填,不静默失败
+ * 用户"选完就没反应"的历史根因:之前浏览器分支直接返回 null,现在改成真的弹框。
+ */
+async function pickWorkspaceFile(target: "new" | "cfg") {
+  const form = target === "new" ? newCfg.value : cfg.value;
+  const wsName = (form.name.trim() || ws.workspaceName || "workspace");
+  const defaultName = `${wsName}.workspace.xml`;
+  // 默认目录:已填的路径的父目录 → 模型目录父目录 → 模型目录本身。仅 Tauri 有效,浏览器忽略。
+  const rawPath = form.workspaceFilePath?.trim() ?? "";
+  let defaultDir: string | undefined;
+  if (rawPath && !rawPath.startsWith(BROWSER_MARK)) {
+    const idx = Math.max(rawPath.lastIndexOf("/"), rawPath.lastIndexOf("\\"));
+    if (idx > 0) defaultDir = rawPath.slice(0, idx);
+  }
+  if (!defaultDir && form.modelRoot && !form.modelRoot.startsWith(BROWSER_MARK)) {
+    defaultDir = deriveDefaultSaveDir(form.modelRoot) ?? form.modelRoot;
+  }
+
+  // 浏览器路径重新选:清掉旧句柄,避免"重选却仍写到老文件"。
+  if (runMode.value !== "tauri") clearCachedSaveFile(WS_SAVE_TAG);
+
+  const picked = await pickSaveFilePath(defaultName, {
+    defaultDir,
+    filters: [{ name: "工作空间 XML", extensions: ["xml"] }],
+    saveFileTag: WS_SAVE_TAG,
+  });
+  if (picked) {
+    form.workspaceFilePath = picked;
+    c.info("workspace", `已选择保存位置:${picked.replace(BROWSER_MARK, "")}`);
+    return;
+  }
+  // 用户取消或环境不支持:给一个清晰提示,不能沉默。
+  if (runMode.value === "browser-basic") {
+    c.warning("workspace", "当前浏览器不支持原生「另存为」(showSaveFilePicker)。请手动填写路径,或使用 Chrome/Edge/桌面版打开。");
+  } else {
+    c.info("workspace", "已取消选择保存位置");
+  }
+}
+
+/** 概览"工作空间文件"行的📁按钮:不打开配置弹窗,直接调起原生对话框选择保存位置,选完写回 store。 */
+async function pickWorkspaceFileFromOverview() {
+  const wsName = ws.workspaceName || "workspace";
+  const defaultName = `${wsName}.workspace.xml`;
+  const rawPath = (ws.workspaceFilePath ?? "").trim();
+  let defaultDir: string | undefined;
+  if (rawPath && !rawPath.startsWith(BROWSER_MARK)) {
+    const idx = Math.max(rawPath.lastIndexOf("/"), rawPath.lastIndexOf("\\"));
+    if (idx > 0) defaultDir = rawPath.slice(0, idx);
+  }
+  if (!defaultDir && ws.modelRoot && !ws.modelRoot.startsWith(BROWSER_MARK)) {
+    defaultDir = deriveDefaultSaveDir(ws.modelRoot) ?? ws.modelRoot;
+  }
+  if (runMode.value !== "tauri") clearCachedSaveFile(WS_SAVE_TAG);
+  const picked = await pickSaveFilePath(defaultName, {
+    defaultDir,
+    filters: [{ name: "工作空间 XML", extensions: ["xml"] }],
+    saveFileTag: WS_SAVE_TAG,
+  });
+  if (picked) {
+    ws.workspaceFilePath = picked;
+    c.success("workspace", `已选择保存位置:${picked.replace(BROWSER_MARK, "")}`);
+    return;
+  }
+  if (runMode.value === "browser-basic") {
+    c.warning("workspace", "当前浏览器不支持原生「另存为」。请使用 Chrome/Edge 或桌面版。");
+  }
+}
+
 async function pickExportDir(target: "new" | "cfg") {
   const setVal = (v: string) => { if (target === "new") newCfg.value.exportCodeDir = v; else cfg.value.exportCodeDir = v; };
   if (isTauri()) {
@@ -200,12 +296,20 @@ function ensureCodegenable(): boolean {
   return true;
 }
 
-/** 开始导出流程:无树则跳过选择直接导出整个 catalog(workspace.xml 也可以只含类型空间)。 */
+/**
+ * 开始导出流程:
+ *   - 生成 C++ 工程:一律全量(BT + FSM 全部包含),不弹选择框——C++ 需要完整代码,勾选反而增加操作步骤。
+ *   - 保存工作空间 XML:仍走选择框,允许"只把这几棵树打进 workspace 存档"的场景。
+ *   - 无树:两种目标都直接直出(workspace.xml 只含类型空间,C++ 工程只含用户类骨架)。
+ */
 function startExport(target: ExportTarget) {
   exportTarget.value = target;
-  // 无树:工作空间 XML 仍允许保存(只含类型空间);C++ 工程也允许(用户类 + 空 behaviors/)。
   if (ws.trees.length === 0) {
     doExport([]);
+    return;
+  }
+  if (target === "cpp-project") {
+    doExport(ws.trees.map((t) => t.treeId));
     return;
   }
   exportSelectOpen.value = true;
@@ -220,19 +324,134 @@ async function doExport(selectedTreeIds: string[]) {
   }
 }
 
+/**
+ * 保存工作空间 XML。按运行环境走不同路径,**不再默认下载**。
+ *
+ * Tauri:
+ *   1) workspaceFilePath 是完整 .xml → 直接原子写,不 confirm
+ *   2) 是目录 → 补 <dir>/<name>.workspace.xml,confirm 一次并回写
+ *   3) 未配置但有 modelRoot → 派生 <modelRoot 父>/<name>.workspace.xml,confirm 一次并回写
+ *   4) 都无 → 弹原生"另存为"选路径,回写
+ *
+ * 浏览器(Chromium 系,支持 File System Access API):
+ *   - 已缓存 FileHandle(用户在配置里点过"选择…"):直写该文件,不弹框
+ *   - 未缓存:弹 showSaveFilePicker,拿到句柄写入并缓存
+ * 浏览器(不支持的老浏览器):
+ *   - 最后兜底 downloadText,并给出 warning 说明"你的浏览器不支持另存为"
+ */
 async function exportWorkspaceXml(selectedTreeIds: string[]) {
   if (!ensureExportable()) return;
-  const xml = ws.exportWorkspaceXml(ws.workspaceName, selectedTreeIds);
-  downloadText(`${ws.workspaceName}.workspace.xml`, xml, "application/xml");
-  // 同步写入「最近工作空间」(localStorage 持久),刷新后可直接还原
-  ws.rememberRecent(ws.workspaceName, xml);
   const totalTrees = selectedTreeIds.length || ws.trees.length;
-  c.success("export", `导出工程包 *.workspace.xml(${totalTrees} 棵树)· 已加入最近工作空间`);
+  const xml = ws.exportWorkspaceXml(ws.workspaceName, selectedTreeIds);
+  const defaultName = `${ws.workspaceName}.workspace.xml`;
+
+  if (runMode.value !== "tauri") {
+    // 浏览器分支:先尝试缓存句柄,再尝试弹另存为,最后才下载。
+    const cached = await tryWriteCachedBrowser(xml);
+    if (cached) {
+      ws.workspaceFilePath = cached.path;
+      ws.rememberRecent(ws.workspaceName, xml);
+      c.success("export", `已保存工作空间(${totalTrees} 棵树)→ ${cached.path.replace(BROWSER_MARK, "")}`);
+      return;
+    }
+    if (runMode.value === "browser-fs") {
+      // 未缓存但支持:弹一次原生另存为,拿句柄再写。
+      const picked = await pickSaveFilePath(defaultName, {
+        filters: [{ name: "工作空间 XML", extensions: ["xml"] }],
+        saveFileTag: WS_SAVE_TAG,
+      });
+      if (!picked) { c.warning("export", "已取消保存"); return; }
+      const wrote = await writeToCachedSaveFile(WS_SAVE_TAG, xml);
+      if (wrote) {
+        ws.workspaceFilePath = wrote.path;
+        ws.rememberRecent(ws.workspaceName, xml);
+        c.success("export", `已保存工作空间(${totalTrees} 棵树)→ ${wrote.path.replace(BROWSER_MARK, "")}`);
+        return;
+      }
+    }
+    // 老浏览器兜底:下载。
+    downloadText(defaultName, xml, "application/xml");
+    ws.rememberRecent(ws.workspaceName, xml);
+    c.warning("export", `你的浏览器不支持原生「另存为」,已下载为 ${defaultName}。使用 Chrome/Edge 或桌面版可直接落盘到指定路径。`);
+    return;
+  }
+
+  // ---- Tauri 桌面端 ----
+  const rawPath = (ws.workspaceFilePath ?? "").trim();
+  const isExplicitFile = rawPath && !rawPath.startsWith(BROWSER_MARK) && rawPath.toLowerCase().endsWith(".xml");
+  let target = normalizeWorkspaceFileTarget(rawPath, defaultName);
+  let derived = !isExplicitFile;
+  if (!target && ws.modelRoot && !ws.modelRoot.startsWith(BROWSER_MARK)) {
+    const parent = deriveDefaultSaveDir(ws.modelRoot);
+    if (parent) {
+      target = `${parent.replace(/[\\/]+$/, "")}/${defaultName}`;
+      derived = true;
+    }
+  }
+  // 全都无 → 直接弹原生另存为,拿到路径就直写(不再让用户先去配置再回来)。
+  if (!target) {
+    const picked = await pickSaveFilePath(defaultName, {
+      filters: [{ name: "工作空间 XML", extensions: ["xml"] }],
+    });
+    if (!picked) { c.warning("export", "已取消保存"); return; }
+    target = picked;
+    derived = false;
+  }
+  if (derived && !window.confirm(`将保存工作空间到:\n${target}\n\n继续?`)) {
+    c.warning("export", "已取消保存");
+    return;
+  }
+  try {
+    const out = await writeArtifact(target, xml);
+    ws.workspaceFilePath = out.path;
+    ws.rememberRecent(ws.workspaceName, xml);
+    c.success("export", `已保存工作空间(${totalTrees} 棵树)→ ${out.path}`);
+  } catch (e) {
+    c.error("export", `写入失败:${(e as Error).message}。请检查目标目录是否可写、路径是否合法。`);
+  }
+}
+
+/** 浏览器:如已缓存 FileHandle,直接写文件返回;否则返回 null 让上游决定弹框。 */
+async function tryWriteCachedBrowser(xml: string): Promise<{ path: string } | null> {
+  if (!hasCachedSaveFile(WS_SAVE_TAG)) return null;
+  try {
+    return await writeToCachedSaveFile(WS_SAVE_TAG, xml);
+  } catch (e) {
+    c.error("export", `写入失败:${(e as Error).message}`);
+    return null;
+  }
+}
+
+/**
+ * 用户在"工作空间文件"里可能填的是目录(如 F:/0411/ccc/FOSimEngine)而不是文件。
+ * 规则:
+ *   - 空 → 返回 undefined,由 caller 走派生。
+ *   - 以 .xml / .workspace.xml 结尾 → 视为文件路径,原样返回(仅统一分隔符)。
+ *   - 否则视为目录:在末尾补 /<defaultName>,让 writeArtifact 真能落到具体文件。
+ */
+function normalizeWorkspaceFileTarget(raw: string | undefined, defaultName: string): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed || trimmed.startsWith(BROWSER_MARK)) return undefined;
+  const lower = trimmed.toLowerCase();
+  if (lower.endsWith(".xml")) return trimmed;
+  return `${trimmed.replace(/[\\/]+$/, "")}/${defaultName}`;
+}
+
+/** 派生"另存为"默认目录:root 存在 → 取其父目录;否则空。浏览器记号目录不参与。 */
+function deriveDefaultSaveDir(root: string): string | undefined {
+  if (!root || root.startsWith(BROWSER_MARK)) return undefined;
+  const idx = Math.max(root.lastIndexOf("/"), root.lastIndexOf("\\"));
+  return idx > 0 ? root.slice(0, idx) : root;
 }
 
 async function genProject(selectedTreeIds: string[]) {
   if (!ensureCodegenable()) return;
-  const files = ws.generateProjectFiles(selectedTreeIds);
+  const projectFiles = ws.generateProjectFiles(selectedTreeIds);
+  // 拉打包的真引擎 modules/extern + core/mal + pugi(路径已带 engine-core/ 前缀,不与 skeleton 冲突)。
+  // fetch 失败(浏览器离线/manifest 缺失)时返回 []:仍保底写出 skeleton 工程,不阻塞导出。
+  const engineFiles = await fetchBundledRuntime().catch(() => [] as { path: string; content: string }[]);
+  const files = [...projectFiles, ...engineFiles];
 
   // 浏览器:已选可写目录句柄 → 直接写入该文件夹(不下载)。
   if (!isTauri()) {
@@ -252,21 +471,36 @@ async function genProject(selectedTreeIds: string[]) {
     return;
   }
 
-  // 桌面端:原生路径,写入配置的导出目录(可临时再选)。
-  const initial = ws.exportCodeDir.startsWith(BROWSER_MARK) ? "" : ws.exportCodeDir;
-  const picked = await pickDirectory(initial);
-  if (!picked) return;
-  ws.exportCodeDir = picked;
-  const out = await writeProjectFiles(picked, files);
-  c.success("export", `生成完整工程 ${files.length} 个文件 → ${picked}${out.viaDownload ? "(浏览器逐个下载)" : ""}`);
+  // 桌面端:配置里已有绝对路径就直接写入(不再无故弹目录选择框 —— 用户填了就是想直接生成到那里)。
+  // 未配置(或为浏览器沙箱记号)才弹一次原生对话框选目录,选完回写。
+  const configured = ws.exportCodeDir && !ws.exportCodeDir.startsWith(BROWSER_MARK) ? ws.exportCodeDir : "";
+  let target = configured;
+  if (!target) {
+    const picked = await pickDirectory("");
+    if (!picked) { c.warning("export", "未选择导出目录,已取消生成"); return; }
+    target = picked;
+    ws.exportCodeDir = picked;
+    c.info("export", `已记住导出目录:${picked}(下次「生成 C++ 工程」直接写入)`);
+  }
+  const out = await writeProjectFiles(target, files);
+  const suffix = out.viaDownload ? "(浏览器逐个下载)" : "";
+  c.success("export", `已生成 C++ 工程(${files.length} 个文件)→ ${target}${suffix}`);
 }
 
-/** 打开本地工作空间(*.workspace.xml):恢复配置 + 类型 + 行为树 + 黑板,然后可继续操作。 */
+/**
+ * 打开本地工作空间(*.workspace.xml):恢复配置 + 类型 + 行为树 + 黑板。
+ * Tauri:原生对话框,默认目录取上次保存位置或 modelRoot 父目录,过滤 *.workspace.xml / *.xml。
+ * 打开后把绝对路径(f.path)记入 workspaceFilePath,后续"保存 XML"静默覆写。
+ * XML 内层若已含 workspaceFilePath 配置(旧版另存/手改)会被 importWorkspaceXml 覆盖上,
+ * 之后 f.path 再一次覆盖 —— 以用户实际打开的路径为准。
+ */
 async function openWorkspace() {
-  const f = await readTextFile();
+  const defaultDir = deriveDefaultSaveDir(ws.workspaceFilePath || ws.modelRoot);
+  const f = await readTextFile([{ name: "工作空间 XML", extensions: ["workspace.xml", "xml"] }], defaultDir);
   if (!f) return;
   if (!/<Workspace\b/.test(f.content)) { c.warning("import", "非 *.workspace.xml"); return; }
   ws.importWorkspaceXml(f.content);
+  if (f.path) ws.workspaceFilePath = f.path; // 桌面端拿到真实路径;浏览器沙箱无 path 保留 XML 里的记录
   ws.rememberRecent(ws.workspaceName, f.content);
   if (ws.modelRoot && !ws.modelRoot.startsWith(BROWSER_MARK) && isTauri()) {
     const res = await readModelCmpFiles(ws.modelRoot);
@@ -275,7 +509,7 @@ async function openWorkspace() {
       reportIngest(res.root, r);
     }
   }
-  c.success("import", `已打开工作空间:${ws.workspaceName}`);
+  c.success("import", `已打开工作空间:${ws.workspaceName}${f.path ? " · " + f.path : ""}`);
 }
 
 /** 加载内置示例(空战决策树+状态机)。供首次进入/空状态使用。 */
@@ -355,6 +589,14 @@ const stats = computed(() => {
         <span class="dot" />
         <strong>工作空间</strong>
         <span class="ws-name" :title="ws.workspaceName">{{ ws.workspaceName }}</span>
+        <span class="env-chip" :class="'env-' + runMode"
+          :title="runMode === 'tauri'
+            ? 'Tauri 桌面端:所有选择/保存走原生对话框,写入绝对路径'
+            : runMode === 'browser-fs'
+              ? '浏览器(Chromium):点击「选择…」会弹原生「另存为」,保存 XML 直写到你选定的文件'
+              : '浏览器(不支持 File System Access):点击「保存 XML」会走下载,请改用 Chrome/Edge 或桌面版'">
+          {{ runMode === "tauri" ? "桌面端" : runMode === "browser-fs" ? "浏览器·可直写" : "浏览器·仅下载" }}
+        </span>
       </div>
       <span class="spacer" />
       <ActionButton label="新建" :primary="true" confirm="将清空当前工作空间,确认?" @run="openNew" />
@@ -362,6 +604,7 @@ const stats = computed(() => {
       <ActionButton label="保存 XML…" @run="() => startExport('workspace-xml')" />
       <ActionButton label="工作空间配置…" @run="openCfg" />
       <ActionButton label="生成 C++ 工程…" :primary="true" @run="() => startExport('cpp-project')" />
+      <ActionButton label="❓ 帮助" @run="helpOpen = true" />
     </div>
 
     <!-- 选项卡 -->
@@ -418,51 +661,88 @@ const stats = computed(() => {
       </div>
 
       <!-- 配置卡 -->
-      <section v-if="!isEmpty" class="card">
+      <section v-if="!isEmpty" class="card cfg-card">
         <header class="card-head">
           <span class="card-icon">⚙</span>
           <span class="card-title">工作空间配置</span>
+          <span class="card-meta">属性 · 输入 · 输出</span>
           <span class="spacer" />
           <button class="link" @click="openCfg">编辑配置 →</button>
         </header>
-        <div class="cfg-grid">
-          <div class="cfg-row">
-            <span class="cfg-k">名称</span>
-            <span class="cfg-v">{{ ws.workspaceName || "未命名" }}</span>
-          </div>
-          <div class="cfg-row">
-            <span class="cfg-k">语言</span>
-            <span class="cfg-v"><span class="chip">{{ ws.language === "cs" ? "C#" : "C++" }}</span></span>
-          </div>
-          <div class="cfg-row">
-            <span class="cfg-k">命名空间</span>
-            <span class="cfg-v mono">{{ ws.cppNamespace || "btproj" }}</span>
-          </div>
-          <div class="cfg-row path">
-            <span class="cfg-k">模型目录</span>
-            <span class="cfg-v path-v" :class="{ unset: !ws.modelRoot }">
-              <span v-if="modelPath.isBrowserName" class="path-prefix" title="浏览器沙箱限制:无法获取绝对路径,只能保留文件夹名">浏览器:</span>
-              <span class="path-text mono"
-                :title="ws.modelRoot ? (modelPath.isBrowserName ? `浏览器选择的文件夹「${modelPath.text}」· 出于安全沙箱限制无法暴露绝对路径,如需绝对路径请在 Tauri 桌面端打开` : ws.modelRoot) : '未配置 — 点「编辑配置」选择 FZFOSimModel 目录'">
-                {{ modelPath.text || "未配置" }}
-              </span>
-              <button v-if="ws.modelRoot && !modelPath.isBrowserName" class="copy" :title="`复制 ${modelPath.text}`" @click="copyText(modelPath.text, '模型目录')">⧉</button>
-            </span>
-          </div>
-          <div class="cfg-row path">
-            <span class="cfg-k">导出代码目录</span>
-            <span class="cfg-v path-v" :class="{ unset: !ws.exportCodeDir }">
-              <span v-if="exportPath.isBrowserName" class="path-prefix" title="浏览器沙箱限制:无法获取绝对路径,只能保留文件夹名">浏览器:</span>
-              <span class="path-text mono"
-                :title="ws.exportCodeDir ? (exportPath.isBrowserName ? `浏览器选择的文件夹「${exportPath.text}」· 已授予读写权限,写入将通过 File System Access API;绝对路径不可见` : ws.exportCodeDir) : '未配置 — 生成 C++ 工程时会要求选择'">
-                {{ exportPath.text || "未配置(生成时再选)" }}
-              </span>
-              <button v-if="ws.exportCodeDir && !exportPath.isBrowserName" class="copy" :title="`复制 ${exportPath.text}`" @click="copyText(exportPath.text, '导出目录')">⧉</button>
-            </span>
+
+        <!-- ⚙ 属性 -->
+        <div class="cfg-block attr">
+          <div class="cfg-bhd"><span class="bico">⚙</span><span>工程属性</span></div>
+          <div class="cfg-grid">
+            <div class="cfg-row">
+              <span class="cfg-k">名称</span>
+              <span class="cfg-v">{{ ws.workspaceName || "未命名" }}</span>
+            </div>
+            <div class="cfg-row">
+              <span class="cfg-k">语言</span>
+              <span class="cfg-v"><span class="chip">{{ ws.language === "cs" ? "C#" : "C++" }}</span></span>
+            </div>
+            <div class="cfg-row">
+              <span class="cfg-k">命名空间</span>
+              <span class="cfg-v mono">{{ ws.cppNamespace || "btproj" }}</span>
+            </div>
           </div>
         </div>
+
+        <!-- ⇩ 输入 -->
+        <div class="cfg-block inp">
+          <div class="cfg-bhd"><span class="bico" title="读取源">⇩</span><span>输入 · 从这里读取模型类型</span></div>
+          <div class="cfg-grid one-col">
+            <div class="cfg-row path">
+              <span class="cfg-k">模型目录</span>
+              <span class="cfg-v path-v" :class="{ unset: !ws.modelRoot }">
+                <span v-if="modelPath.isBrowserName" class="path-prefix" title="浏览器沙箱限制:无法获取绝对路径,只能保留文件夹名">浏览器:</span>
+                <span class="path-text mono"
+                  :title="ws.modelRoot ? (modelPath.isBrowserName ? `浏览器选择的文件夹「${modelPath.text}」· 沙箱限制不暴露绝对路径` : ws.modelRoot) : '未配置 — 点「编辑配置」选择 FZFOSimModel 目录'">
+                  {{ modelPath.text || "未配置(点编辑配置选目录)" }}
+                </span>
+                <button v-if="ws.modelRoot && !modelPath.isBrowserName" class="copy" :title="`复制 ${modelPath.text}`" @click="copyText(modelPath.text, '模型目录')">⧉</button>
+              </span>
+            </div>
+          </div>
+          <div class="cfg-tip">扫描此目录下 <span class="mono">.cmp</span> 抽取类/方法到类型空间。BT Studio 只读,不会写入。</div>
+        </div>
+
+        <!-- ⇧ 输出 -->
+        <div class="cfg-block out">
+          <div class="cfg-bhd"><span class="bico" title="写盘目标">⇧</span><span>输出 · 保存到这里</span></div>
+          <div class="cfg-grid one-col">
+            <div class="cfg-row path">
+              <span class="cfg-k">① 工作空间 XML</span>
+              <span class="cfg-v path-v" :class="{ unset: !ws.workspaceFilePath }">
+                <span class="path-text mono"
+                  :title="ws.workspaceFilePath || '未落盘 — 首次「保存 XML」会弹另存为并记住位置'">
+                  {{ ws.workspaceFilePath || "未落盘(点「保存 XML」选择位置)" }}
+                </span>
+                <button class="copy" :title="ws.workspaceFilePath ? '重新选择保存位置' : '选择保存位置'" @click="pickWorkspaceFileFromOverview">📁</button>
+                <button v-if="ws.workspaceFilePath" class="copy" :title="`复制 ${ws.workspaceFilePath}`" @click="copyText(ws.workspaceFilePath, '工作空间文件路径')">⧉</button>
+              </span>
+            </div>
+            <div class="cfg-row path">
+              <span class="cfg-k">② C++ 工程目录</span>
+              <span class="cfg-v path-v" :class="{ unset: !ws.exportCodeDir }">
+                <span v-if="exportPath.isBrowserName" class="path-prefix" title="浏览器沙箱限制:无法获取绝对路径,只能保留文件夹名">浏览器:</span>
+                <span class="path-text mono"
+                  :title="ws.exportCodeDir ? (exportPath.isBrowserName ? `浏览器文件夹「${exportPath.text}」· 已授权读写` : ws.exportCodeDir) : '未配置 — 生成 C++ 工程时会要求选择'">
+                  {{ exportPath.text || "未配置(生成时再选)" }}
+                </span>
+                <button v-if="ws.exportCodeDir && !exportPath.isBrowserName" class="copy" :title="`复制 ${exportPath.text}`" @click="copyText(exportPath.text, '导出目录')">⧉</button>
+              </span>
+            </div>
+          </div>
+          <div class="cfg-tip">
+            <span class="tip-line"><strong>①</strong> 点顶栏「保存 XML」时写这里。留空即弹另存为。</span>
+            <span class="tip-line"><strong>②</strong> 点顶栏「生成 C++ 工程」时写这里。生成物:Agent 类骨架 + 注册 + BT/FSM XML + main + CMakeLists。</span>
+          </div>
+        </div>
+
         <div v-if="modelPath.isBrowserName || exportPath.isBrowserName" class="path-hint">
-          ⓘ 浏览器预览模式无法显示目录绝对路径(File System Access API 安全限制)。在 Tauri 桌面端打开本应用将看到完整绝对路径。
+          ⓘ 浏览器预览模式无法显示目录绝对路径(File System Access API 安全限制)。桌面端可见完整路径。
         </div>
       </section>
 
@@ -571,58 +851,239 @@ const stats = computed(() => {
 
     <!-- 新建工作空间对话框 -->
     <ModalDialog :open="newOpen" title="新建工作空间" ok-label="新建" @ok="confirmNew" @cancel="newOpen = false">
-      <label class="fld"><span>工作空间名 <em>*</em></span><input class="input" v-model="newCfg.name" placeholder="my_workspace" /></label>
-      <label class="fld">
-        <span>模型目录 (FZFOSimModel)</span>
-        <div class="pick">
-          <input class="input" v-model="newCfg.modelRoot" placeholder="如 F:/FOSim/FZFOSimModel" />
-          <button class="btn tiny" @click="pickModelDir('new')">选择…</button>
-        </div>
-      </label>
-      <label class="fld">
-        <span>C++ 导出代码目录</span>
-        <div class="pick">
-          <input class="input" v-model="newCfg.exportCodeDir" placeholder="生成 C++ 工程时输出到此目录(可后选)" />
-          <button class="btn tiny" @click="pickExportDir('new')">选择…</button>
-        </div>
-      </label>
-      <label class="fld"><span>C++ 命名空间</span><input class="input" v-model="newCfg.cppNamespace" placeholder="btproj" /></label>
-      <label class="fld">
-        <span>语言</span>
-        <select class="select" v-model="newCfg.language">
-          <option value="cpp">C++</option>
-          <option value="cs">C#</option>
-        </select>
-      </label>
-      <div class="note">将清空当前类型/树/黑板,以上述配置开始新工作空间。配置模型目录后将<strong>自动扫描</strong>,直接到「模型类型抽取」勾选抽取即可。</div>
+      <div class="cfg-form">
+        <!-- ⚙ 属性 -->
+        <section class="cfg-sec attr">
+          <header class="cfg-sec-hd">
+            <span class="sec-ico">⚙</span>
+            <span class="sec-tt">工作空间属性</span>
+            <span class="sec-sub">工程的名称与代码风格,存进 workspace.xml</span>
+          </header>
+          <div class="cfg-sec-body">
+            <label class="fld half">
+              <span>工作空间名 <em>*</em></span>
+              <input class="input" v-model="newCfg.name" placeholder="my_workspace" />
+            </label>
+            <label class="fld half">
+              <span>语言</span>
+              <select class="select" v-model="newCfg.language">
+                <option value="cpp">C++</option>
+                <option value="cs">C#</option>
+              </select>
+            </label>
+            <label class="fld">
+              <span>C++ 命名空间</span>
+              <input class="input" v-model="newCfg.cppNamespace" placeholder="btproj" />
+            </label>
+          </div>
+        </section>
+
+        <!-- ⇩ 输入 -->
+        <section class="cfg-sec inp">
+          <header class="cfg-sec-hd">
+            <span class="sec-ico" title="从此目录读取">⇩</span>
+            <span class="sec-tt">输入 · 模型类型来源</span>
+            <span class="sec-sub">扫描 .cmp 抽取类/方法到类型空间(BT Studio 只读,不写入)</span>
+          </header>
+          <div class="cfg-sec-body">
+            <label class="fld">
+              <span>模型目录 <em class="muted-2">·扫描此目录下的 *.cmp 文件</em></span>
+              <div class="pick">
+                <input class="input" v-model="newCfg.modelRoot" placeholder="如 F:/FOSim/FZFOSimModel" />
+                <button class="btn tiny" @click="pickModelDir('new')">📂 选择目录…</button>
+              </div>
+              <span class="fld-hint">确定后会自动扫描并抽取类/方法。之后在「模型类型抽取」页勾选想要的类。</span>
+            </label>
+          </div>
+        </section>
+        <!-- ⇧ 输出 -->
+        <section class="cfg-sec out">
+          <header class="cfg-sec-hd">
+            <span class="sec-ico" title="写盘目标">⇧</span>
+            <span class="sec-tt">输出 · 保存目标</span>
+            <span class="sec-sub">点顶栏「保存 XML」和「生成 C++ 工程」时,分别写到这两处</span>
+          </header>
+          <div class="cfg-sec-body">
+            <label class="fld">
+              <span>① 工作空间 XML 保存路径 <em class="muted-2">·「保存 XML」目标文件</em></span>
+              <div class="pick">
+                <input class="input" v-model="newCfg.workspaceFilePath" :placeholder="`留空即在保存时弹另存为(${newCfg.name || 'workspace'}.workspace.xml)`" />
+                <button class="btn tiny" @click="pickWorkspaceFile('new')">💾 选择文件…</button>
+              </div>
+              <span class="fld-hint">留空亦可 —— 首次「保存 XML」会弹出另存为并把选择记回这里。</span>
+            </label>
+            <label class="fld">
+              <span>② C++ 工程输出目录 <em class="muted-2">·「生成 C++ 工程」目标目录</em></span>
+              <div class="pick">
+                <input class="input" v-model="newCfg.exportCodeDir" placeholder="留空即在生成时弹目录选择器" />
+                <button class="btn tiny" @click="pickExportDir('new')">📁 选择目录…</button>
+              </div>
+              <span class="fld-hint">生成物:Agent 类骨架(.h/.cpp) + RegisterFunctions + BT/FSM XML + main.cpp + CMakeLists。</span>
+            </label>
+          </div>
+        </section>
+      </div>
+      <div class="note">
+        点「新建」将<strong>清空当前工作空间</strong>并按上述配置开新工程。模型目录配好即
+        <strong>自动扫描</strong>,直接到「模型类型抽取」页勾选抽取到类型空间。
+      </div>
     </ModalDialog>
 
     <!-- 工作空间配置对话框 -->
     <ModalDialog :open="cfgOpen" title="工作空间配置" ok-label="应用" @ok="applyCfg" @cancel="cfgOpen = false">
-      <label class="fld"><span>工作空间名</span><input class="input" v-model="cfg.name" /></label>
-      <label class="fld">
-        <span>模型目录 (FZFOSimModel)</span>
-        <div class="pick">
-          <input class="input" v-model="cfg.modelRoot" placeholder="如 F:/FOSim/FZFOSimModel" />
-          <button class="btn tiny" @click="pickModelDir('cfg')">选择…</button>
-        </div>
-      </label>
-      <label class="fld">
-        <span>C++ 导出代码目录</span>
-        <div class="pick">
-          <input class="input" v-model="cfg.exportCodeDir" placeholder="生成 C++ 工程时的输出根目录" />
-          <button class="btn tiny" @click="pickExportDir('cfg')">选择…</button>
-        </div>
-      </label>
-      <label class="fld"><span>C++ 命名空间</span><input class="input" v-model="cfg.cppNamespace" placeholder="btproj" /></label>
-      <label class="fld">
-        <span>语言</span>
-        <select class="select" v-model="cfg.language">
-          <option value="cpp">C++</option>
-          <option value="cs">C#</option>
-        </select>
-      </label>
-      <div class="note">生成完整工程将在「导出代码目录」下产出:用户 Agent 类(继承 CyberDecisionAgentBase)+ RegisterFunctions + 行为树 XML + main.cpp + CMakeLists。改动模型目录后将自动重扫。</div>
+      <div class="cfg-form">
+        <!-- ⚙ 属性 -->
+        <section class="cfg-sec attr">
+          <header class="cfg-sec-hd">
+            <span class="sec-ico">⚙</span>
+            <span class="sec-tt">工作空间属性</span>
+            <span class="sec-sub">工程的名称与代码风格,存进 workspace.xml</span>
+          </header>
+          <div class="cfg-sec-body">
+            <label class="fld half">
+              <span>工作空间名</span>
+              <input class="input" v-model="cfg.name" />
+            </label>
+            <label class="fld half">
+              <span>语言</span>
+              <select class="select" v-model="cfg.language">
+                <option value="cpp">C++</option>
+                <option value="cs">C#</option>
+              </select>
+            </label>
+            <label class="fld">
+              <span>C++ 命名空间</span>
+              <input class="input" v-model="cfg.cppNamespace" placeholder="btproj" />
+            </label>
+          </div>
+        </section>
+
+        <!-- ⇩ 输入 -->
+        <section class="cfg-sec inp">
+          <header class="cfg-sec-hd">
+            <span class="sec-ico" title="从此目录读取">⇩</span>
+            <span class="sec-tt">输入 · 模型类型来源</span>
+            <span class="sec-sub">扫描 .cmp 抽取类/方法到类型空间(BT Studio 只读,不写入)</span>
+          </header>
+          <div class="cfg-sec-body">
+            <label class="fld">
+              <span>模型目录 <em class="muted-2">·扫描此目录下的 *.cmp 文件</em></span>
+              <div class="pick">
+                <input class="input" v-model="cfg.modelRoot" placeholder="如 F:/FOSim/FZFOSimModel" />
+                <button class="btn tiny" @click="pickModelDir('cfg')">📂 选择目录…</button>
+              </div>
+              <span class="fld-hint">改动后点应用即自动重扫。</span>
+            </label>
+          </div>
+        </section>
+
+        <!-- ⇧ 输出 -->
+        <section class="cfg-sec out">
+          <header class="cfg-sec-hd">
+            <span class="sec-ico" title="写盘目标">⇧</span>
+            <span class="sec-tt">输出 · 保存目标</span>
+            <span class="sec-sub">「保存 XML」和「生成 C++ 工程」直写到这两处</span>
+          </header>
+          <div class="cfg-sec-body">
+            <label class="fld">
+              <span>① 工作空间 XML 保存路径 <em class="muted-2">·「保存 XML」目标文件</em></span>
+              <div class="pick">
+                <input class="input" v-model="cfg.workspaceFilePath" :placeholder="`如 ${cfg.name || ws.workspaceName}.workspace.xml 的绝对路径`" />
+                <button class="btn tiny" @click="pickWorkspaceFile('cfg')">💾 选择文件…</button>
+              </div>
+              <span class="fld-hint">留空:首次保存时弹另存为并把路径记回这里,之后就静默覆写不再打扰。</span>
+            </label>
+            <label class="fld">
+              <span>② C++ 工程输出目录 <em class="muted-2">·「生成 C++ 工程」目标目录</em></span>
+              <div class="pick">
+                <input class="input" v-model="cfg.exportCodeDir" placeholder="生成 C++ 工程的输出根目录" />
+                <button class="btn tiny" @click="pickExportDir('cfg')">📁 选择目录…</button>
+              </div>
+              <span class="fld-hint">生成物:Agent 类骨架 + 注册函数 + BT/FSM XML + main.cpp + CMakeLists。</span>
+            </label>
+          </div>
+        </section>
+      </div>
+      <div class="note">
+        改动模型目录后将<strong>自动重扫</strong>。保存路径留空时,「保存 XML」会弹另存为并把路径记回此处。
+      </div>
+    </ModalDialog>
+
+    <!-- 帮助文档 -->
+    <ModalDialog :open="helpOpen" title="BT Studio · 使用帮助" ok-label="知道了" @ok="helpOpen = false" @cancel="helpOpen = false">
+      <div class="help-doc">
+        <section class="help-sec">
+          <h3>① 工作流总览</h3>
+          <ol class="help-ol">
+            <li><strong>新建 / 打开</strong> 工作空间 —— 命名 + 语言 + 命名空间。</li>
+            <li><strong>⇩ 输入</strong>:配置模型目录(FZFOSimModel),自动扫 <code>.cmp</code> 抽取类/方法到"类型空间"。</li>
+            <li><strong>设计</strong>:在"设计"页拖节点组行为树 / 状态机;叶子节点绑定类 + 函数(来自类型空间)。</li>
+            <li><strong>场景挂接</strong>:选想定 + 选实体 + 勾要挂的树 → 批量校验 → 写回 <code>.sdata</code> + 各自 <code>.bt/.sm</code>。</li>
+            <li><strong>⇧ 输出</strong>:「保存 XML」写 <code>*.workspace.xml</code>;「生成 C++ 工程」写 Agent 类骨架 + BT/FSM XML + CMake。</li>
+          </ol>
+        </section>
+
+        <section class="help-sec">
+          <h3>② 三种运行环境</h3>
+          <ul class="help-ul">
+            <li><span class="chip env-tauri">桌面端</span> Tauri 打包运行,所有选择/保存走原生对话框,写绝对路径。<strong>推荐生产使用。</strong></li>
+            <li><span class="chip env-browser-fs">浏览器·可直写</span> Chrome/Edge 下 <code>vite dev</code> 预览,通过 File System Access API 可原生"另存为"直写文件。</li>
+            <li><span class="chip env-browser-basic">浏览器·仅下载</span> 老浏览器(Firefox/Safari)无 FS API,只能下载到 <code>~/Downloads</code>;顶部有明确 warning。</li>
+          </ul>
+          <p class="help-p">顶栏右侧的运行环境 chip 会实时展示当前处于哪种模式,鼠标悬停查看细节。</p>
+        </section>
+
+        <section class="help-sec">
+          <h3>③ 生成的 C++ 工程结构</h3>
+          <pre class="help-tree">工程根/
+├─ CMakeLists.txt         顶层:含 tick_check + ctest + whole-archive
+├─ runtime/               fosim_bt_runtime 库:BT/FSM 解析+调度+MAL(自包含骨架)
+├─ types/                 &lt;ns&gt;_types 库:Agent 类 .h/.cpp(含 FOSIM_REGISTER_AGENT 宏)
+├─ app/main.cpp           入口:仅调 CyberAgentRegistry::instance().RegisterAll()
+├─ tests/tick_check.cpp   自动化:遍历 behaviors/ 跑 Tick 断言最终状态(ctest)
+├─ behaviors/             行为树/状态机 XML
+└─ engine-core/           FOSim modules/extern + core/mal + pugi 真源码(INTERFACE 参考)</pre>
+          <p class="help-p">
+            <strong>宏静态注册</strong> —— 每个 Agent 类的 <code>.cpp</code> 底部展开一次
+            <code>FOSIM_REGISTER_AGENT(ClassName);</code>,全局 static 对象在 main 之前构造,
+            自动把工厂塞进 <code>CyberAgentRegistry</code>。main 里只留一行
+            <code>CyberAgentRegistry::instance().RegisterAll()</code> —— 不再需要手写
+            <code>MyAgent m; m.RegisterFunctions();</code>。
+          </p>
+        </section>
+
+        <section class="help-sec">
+          <h3>④ 编译 + 自动化测试</h3>
+          <pre class="help-tree"># 桌面/命令行:
+cmake -S . -B build
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure   # 自动跑 tick_check</pre>
+          <p class="help-p">
+            <code>tick_check</code> 会加载 <code>behaviors/*.bt.xml/*.fsm.xml</code>,
+            Tick 到终止或 200 帧,断言 BT 必须终止(否则算逻辑错),FSM 允许 Running 自旋。
+          </p>
+        </section>
+
+        <section class="help-sec warn">
+          <h3>⑤ 注意事项</h3>
+          <ul class="help-ul">
+            <li>「新建工作空间」会<strong>清空当前所有类型 / 树 / 黑板</strong>,操作前先保存。</li>
+            <li>模型目录改动后会<strong>自动重扫</strong>;旧类型不会被自动删,可到「模型类型抽取」页手动清理。</li>
+            <li>「保存 XML」路径为空时,首次会弹另存为并<strong>记回配置</strong>,之后就直写覆盖不再打扰。</li>
+            <li>场景挂接的<strong>完整校验</strong>是硬闸门:任一节点的类/函数在实体的 components 里查不到就无法写回。</li>
+            <li>真引擎 <code>engine-core/</code> 默认作 INTERFACE(仅头文件参考);
+              打开 <code>cmake -DUSE_REAL_ENGINE_LOADER=ON -DENGINE_EXTRA_INCLUDE=&lt;FOSim/include&gt;</code>
+              才编译业务无关的 loader。</li>
+            <li>切换到其他页面再回来,场景挂接的选中状态<strong>会保留</strong>(pinia store);
+              但工作空间未保存的编辑随浏览器刷新丢失,记得及时保存。</li>
+          </ul>
+        </section>
+
+        <section class="help-sec">
+          <h3>⑥ 反馈与支持</h3>
+          <p class="help-p">遇到问题请截图 + 描述复现步骤,发到项目维护群,附一段浏览器控制台/终端输出更佳。</p>
+        </section>
+      </div>
     </ModalDialog>
 
     <!-- 导出选择对话框:勾选要包含到本次导出的 BT/FSM -->
@@ -655,6 +1116,14 @@ const stats = computed(() => {
   max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   border-left: 1px solid var(--line-soft); padding-left: 8px; margin-left: 2px;
 }
+.env-chip {
+  font-size: 10.5px; padding: 2px 8px; border-radius: 10px;
+  border: 1px solid transparent; cursor: help; user-select: none;
+  letter-spacing: 0.02em;
+}
+.env-tauri { color: var(--ok, #47d6a4); background: rgba(71,214,164,0.1); border-color: rgba(71,214,164,0.3); }
+.env-browser-fs { color: var(--accent, #5eb3ff); background: rgba(94,179,255,0.1); border-color: rgba(94,179,255,0.3); }
+.env-browser-basic { color: var(--warn, #f5b65c); background: rgba(245,182,92,0.1); border-color: rgba(245,182,92,0.3); }
 .spacer { flex: 1; }
 
 /* 选项卡 */
@@ -799,10 +1268,44 @@ const stats = computed(() => {
 .status.warn { color: var(--warn, #f5b65c); background: rgba(245,182,92,0.1); }
 .status.err { color: var(--err); background: rgba(240,109,109,0.1); }
 
-/* 配置卡 */
+/* 配置卡 —— 分区式:属性 / ⇩ 输入 / ⇧ 输出。视觉线索来自左侧强调色边条。 */
+.cfg-card { display: flex; flex-direction: column; gap: 8px; }
+.cfg-block {
+  border: 1px solid var(--line-soft); border-radius: 8px;
+  padding: 10px 12px 8px;
+  background: rgba(0,0,0,0.12);
+  position: relative;
+}
+.cfg-block::before {
+  content: ""; position: absolute; top: 8px; bottom: 8px; left: 0; width: 3px;
+  border-radius: 3px 0 0 3px;
+}
+.cfg-block.attr::before { background: var(--muted, #7d8ba1); }
+.cfg-block.inp::before { background: linear-gradient(180deg, #47d6a4, #35a37c); }
+.cfg-block.out::before { background: linear-gradient(180deg, #f5b65c, #d98a2a); }
+.cfg-bhd {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11.5px; font-weight: 600; color: var(--text);
+  margin-bottom: 8px; letter-spacing: 0.02em;
+}
+.cfg-bhd .bico {
+  width: 22px; height: 22px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px;
+}
+.cfg-block.attr .bico { background: rgba(125,139,161,0.12); color: var(--muted); border: 1px solid rgba(125,139,161,0.28); }
+.cfg-block.inp .bico { background: rgba(71,214,164,0.12); color: var(--ok, #47d6a4); border: 1px solid rgba(71,214,164,0.32); }
+.cfg-block.out .bico { background: rgba(245,182,92,0.12); color: var(--warn, #f5b65c); border: 1px solid rgba(245,182,92,0.32); }
+.cfg-tip {
+  margin-top: 6px; font-size: 10.5px; line-height: 1.55; color: var(--muted-2);
+  display: flex; flex-direction: column; gap: 2px;
+}
+.cfg-tip .tip-line strong { color: var(--warn, #f5b65c); margin-right: 4px; }
+
 .cfg-grid {
   display: grid; grid-template-columns: 1fr 1fr; gap: 8px 14px;
 }
+.cfg-grid.one-col { grid-template-columns: 1fr; }
 .cfg-row { display: flex; align-items: center; gap: 10px; min-height: 24px; font-size: 12.5px; }
 .cfg-row.path { grid-column: span 2; }
 .cfg-k { color: var(--muted); flex: 0 0 100px; font-size: 11.5px; }
@@ -890,8 +1393,45 @@ const stats = computed(() => {
 .fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; margin-bottom: 8px; }
 .fld > span { color: var(--muted); font-size: 11.5px; }
 .fld em { color: var(--err); font-style: normal; margin-left: 2px; }
+.fld em.muted-2 { color: var(--muted-2); font-size: 10.5px; margin-left: 4px; }
+.fld-hint { color: var(--muted-2); font-size: 10.5px; line-height: 1.5; margin-top: 2px; }
 .pick { display: flex; gap: 6px; }
 .pick .input { flex: 1; }
+
+/* 对话框分区(⚙ 属性 / ⇩ 输入 / ⇧ 输出)—— 视觉上和概览配置卡呼应,左边细色条区分类别 */
+.cfg-form { display: flex; flex-direction: column; gap: 10px; }
+.cfg-sec {
+  border: 1px solid var(--line-soft); border-radius: 8px;
+  padding: 10px 12px 6px;
+  background: rgba(0,0,0,0.14);
+  position: relative;
+}
+.cfg-sec::before {
+  content: ""; position: absolute; top: 10px; bottom: 10px; left: 0; width: 3px;
+  border-radius: 3px 0 0 3px;
+}
+.cfg-sec.attr::before { background: var(--muted, #7d8ba1); }
+.cfg-sec.inp::before { background: linear-gradient(180deg, #47d6a4, #35a37c); }
+.cfg-sec.out::before { background: linear-gradient(180deg, #f5b65c, #d98a2a); }
+.cfg-sec-hd {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 8px;
+  padding-bottom: 6px; border-bottom: 1px dashed var(--line-soft);
+}
+.cfg-sec-hd .sec-ico {
+  width: 22px; height: 22px; border-radius: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 600;
+}
+.cfg-sec.attr .sec-ico { background: rgba(125,139,161,0.12); color: var(--muted); border: 1px solid rgba(125,139,161,0.3); }
+.cfg-sec.inp .sec-ico { background: rgba(71,214,164,0.12); color: var(--ok, #47d6a4); border: 1px solid rgba(71,214,164,0.32); }
+.cfg-sec.out .sec-ico { background: rgba(245,182,92,0.12); color: var(--warn, #f5b65c); border: 1px solid rgba(245,182,92,0.32); }
+.cfg-sec-hd .sec-tt { font-size: 12.5px; font-weight: 600; color: var(--text); }
+.cfg-sec-hd .sec-sub { font-size: 10.5px; color: var(--muted-2); margin-left: 4px; }
+.cfg-sec-body {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px;
+}
+.cfg-sec-body > .fld { grid-column: span 2; }
+.cfg-sec-body > .fld.half { grid-column: span 1; }
 .note {
   font-size: 11px; line-height: 1.55;
   color: var(--muted-2);
@@ -901,4 +1441,30 @@ const stats = computed(() => {
   margin-top: 4px;
 }
 .ok { color: var(--ok); } .err { color: var(--err); }
+
+/* 帮助文档:分区,支持滚动;标题带序号点缀,代码/树形块用等宽字 */
+.help-doc { max-height: 62vh; overflow-y: auto; padding-right: 4px; font-size: 12.5px; line-height: 1.6; }
+.help-sec { padding: 8px 12px 10px; border-radius: 8px; margin-bottom: 8px; background: rgba(255,255,255,0.02); border: 1px solid var(--line-soft); }
+.help-sec.warn { background: rgba(245,182,92,0.05); border-color: rgba(245,182,92,0.25); }
+.help-sec h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: 0.02em; }
+.help-sec.warn h3 { color: var(--warn, #f5b65c); }
+.help-ol, .help-ul { margin: 4px 0; padding-left: 20px; }
+.help-ol li, .help-ul li { margin: 3px 0; color: var(--muted); }
+.help-ol li strong, .help-ul li strong { color: var(--text); }
+.help-p { margin: 6px 0; color: var(--muted); }
+.help-tree {
+  margin: 6px 0; padding: 8px 10px;
+  background: rgba(0,0,0,0.24); border: 1px solid var(--line-soft); border-radius: 6px;
+  font-family: var(--mono, monospace); font-size: 11px; line-height: 1.5;
+  white-space: pre; overflow-x: auto; color: var(--text);
+}
+.help-doc code {
+  font-family: var(--mono, monospace); font-size: 11.5px;
+  padding: 1px 5px; border-radius: 3px;
+  background: rgba(94,179,255,0.08); color: var(--accent, #5eb3ff);
+}
+.help-doc .chip { margin-right: 4px; }
+.help-doc .chip.env-tauri { color: var(--ok, #47d6a4); background: rgba(71,214,164,0.12); border: 1px solid rgba(71,214,164,0.3); }
+.help-doc .chip.env-browser-fs { color: var(--accent, #5eb3ff); background: rgba(94,179,255,0.12); border: 1px solid rgba(94,179,255,0.3); }
+.help-doc .chip.env-browser-basic { color: var(--warn, #f5b65c); background: rgba(245,182,92,0.12); border: 1px solid rgba(245,182,92,0.3); }
 </style>

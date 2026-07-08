@@ -71,3 +71,102 @@ pnpm --filter @btstudio/desktop tauri dev
 - **28 节点目录 + vue2 视觉**(rect/ellipse/polygon + 渐变);**按类型连接校验**(And/Or 只接条件、State↔跳转、监测分支等)。
 
 详见 [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)、[`docs/XML_FORMAT.md`](docs/XML_FORMAT.md)、[`docs/STATE_MACHINE.md`](docs/STATE_MACHINE.md)、[`docs/META_AND_CODEGEN.md`](docs/META_AND_CODEGEN.md)、[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)、[`docs/BUILD.md`](docs/BUILD.md)。
+
+---
+
+## 使用教程 —— 从设计到 C++ 工程编译 + 断点
+
+一条完整链路:**编辑器画 BT/FSM → 一键生成 C++ 工程 → CMake 编译 → ctest 逻辑校验 → 在 Action 函数体断点**。生成产物默认保留用户手写代码块 `///<<< BEGIN WRITING YOUR CODE <tag> ... ///<<< END WRITING YOUR CODE <tag>`,再生成不会覆盖。
+
+### 1) 安装与启动
+
+```bash
+pnpm install
+pnpm --filter @btstudio/bt-core build          # 生成 dist,给 scripts/genKdd.mjs 用
+pnpm --filter @btstudio/desktop tauri dev      # 桌面模式(推荐,可落盘)
+# 或浏览器模式
+pnpm --filter @btstudio/desktop dev            # http://localhost:5180
+```
+
+### 2) 建模型 & 画树
+
+1. **模型工作空间**:上传/编辑 `.mcr` 或 `meta.xml`,定义类、成员、方法(Action/Condition)。方法的 `intendedCmd` 决定 C++ 端 `RegisterDecisionFunction(cmd, ...)` 的首键。
+2. **设计页 → 新建行为树 / 新建状态机**:拖节点、连线、Action/Condition 绑定到已建的方法;参数可选 常量 / 黑板变量 / 类成员。
+3. **校验与导出**:必须无 Error;工程保存到 `*.workspace.xml`,行为树到 `*.bt.xml`,状态机到 `*.fsm.xml`。
+
+### 3) 一键生成 C++ 工程
+
+推荐用脚本(不依赖 Tauri 环境):
+
+```bash
+node packages/bt-core/scripts/genKdd.mjs \
+     F:/0411/ccc/kdd_workspace.workspace.xml \
+     F:/0411/ccc/GeneratedCpp/空地打击
+```
+
+生成结构:
+
+```
+GeneratedCpp/空地打击/
+├─ CMakeLists.txt                    # 顶层,链接 runtime + types,含 ctest
+├─ runtime/                          # 自包含 BT/FSM 运行时(loader + task + observer)
+│  ├─ include/fosim/{bt_runtime,fsm_runtime,cyber_types}.h
+│  └─ src/{bt_runtime,fsm_runtime}.cpp
+├─ types/                            # 由类目录生成:每个用户类 → .h/.cpp
+│  ├─ include/<ns>/BTAirToMCog.h     # class : CyberDecisionAgentBase
+│  └─ src/BTAirToMCog.cpp            # RegisterFunctions + 每个方法的 ///<<< 保留区
+├─ behaviors/*.bt.xml *.fsm.xml      # 编辑器导出的运行时 XML
+├─ app/main.cpp                      # 加载全部 BT+FSM,单帧循环并行 tick
+├─ tests/tick_check.cpp              # ctest 入口,断言 BT 不 Running 收敛
+└─ engine-core/                      # (可选)真引擎干净子集,USE_REAL_ENGINE_LOADER=ON 才编
+```
+
+**再次生成时**:所有 `///<<< BEGIN WRITING YOUR CODE <tag> ... ///<<< END WRITING YOUR CODE <tag>` 内的手写代码会被 `scripts/genKdd.mjs` 中的 `mergeUserBlocks` 保留,包括 `tests/tick_check.cpp` 的 `tick_check_main` 块。
+
+### 4) 编译
+
+```bash
+cd F:/0411/ccc/GeneratedCpp/空地打击
+cmake -S . -B build
+cmake --build build --config Release
+```
+
+### 5) 逻辑校验 (ctest)
+
+```bash
+ctest --test-dir build --output-on-failure
+# 通过 → logic_check: PASS (BT=N FSM=M frames=X)
+```
+
+`tick_check` 会加载所有 `behaviors/*.bt.xml` + `*.fsm.xml`,单帧循环并行 Tick,断言所有 BT 不再 Running。失败会带路径 + 帧数报错。
+
+### 6) 在 Action 断点调试
+
+BT/FSM 的每个 Leaf Action 在 Tick 时**真的会调用你注册的类方法**(通过 `CyberDecisionAgentBase::FindFunction` + `InvokeDecisionFunction(agent, fptr, in, out)`,`fptr` 是最通用成员函数指针 `__UnexistingClass::*ProcessDecisionFunctionPtr`,`reinterpret_cast<__UnexistingClass*>(agent)` 后调用,避 MSVC C4407)。
+
+在 `types/src/<你的类>.cpp` 里,任意方法的 `///<<< BEGIN WRITING YOUR CODE <方法名>` 内写业务代码,例如:
+
+```cpp
+///<<< BEGIN WRITING YOUR CODE Get_Sensor_Status
+std::printf("[USER] Get_Sensor_Status called!\n");
+status = "sensor_ok";
+///<<< END WRITING YOUR CODE Get_Sensor_Status
+```
+
+用 Visual Studio 打开 `build/*.sln`,在该 `printf` 或方法首行下断点,Debug 启动 `kdd_workspace` / `tick_check`,一旦 BT 走到该 Action 节点即命中。
+
+### 7) 环境变量
+
+- `FOSIM_BT_TRACE=full` — 打印每个节点的 Enter/Exit/Result,方便定位 BT 走向;`summary` 只打印顶层;不设为 off。
+- `argv` 覆盖:`kdd_workspace.exe path/to/other.bt.xml [more.bt.xml ...] [foo.fsm.xml ...]` 可绕过编译期 `btPaths/fsmPaths` 清单跑指定文件。
+
+### 8) 常见问题
+
+| 症状 | 原因 / 修法 |
+|---|---|
+| 生成后手写代码丢了 | 检查 `///<<< END WRITING YOUR CODE <tag>` 的 tag 必须与 BEGIN 完全一致(生成器已修) |
+| Action 断点不进 | 该类未在 `types/` 生成 → 检查方法 `ownerClass` 是否落在 catalog.classes 里,且 `source` 是 user 或 model 且带方法 |
+| ctest FAIL "still Running" | BT 里有死循环 / 未收敛节点;把 `FOSIM_BT_TRACE=full` 打开重跑看最后 tick 卡在哪个节点 |
+| MSVC C4407 编译错 | 已通过 `class __UnexistingClass;` + `pointers_to_members(full_generality)` 规避,不要改回具体类成员指针 |
+
+

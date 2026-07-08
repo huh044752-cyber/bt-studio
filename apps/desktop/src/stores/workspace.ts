@@ -57,6 +57,8 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   const exportCodeDir = ref<string>("");
   const language = ref<"cpp" | "cs">("cpp");
   const cppNamespace = ref<string>("btproj");
+  // 工作空间 XML 自身在磁盘上的绝对路径(打开/另存后回写),供"保存 XML"静默覆写。
+  const workspaceFilePath = ref<string>("");
   // 引擎源码根目录:生成时把真实的 BT/FSM 运行时(modules/extern)+ MAL 拷贝进工程的 runtime/。
   const engineSrcDir = ref<string>("");
   // 解耦:原始模型目录(.cmp 解析结果),不直接进入类型空间;由"模型类型抽取"模块勾选抽取。
@@ -160,6 +162,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     selectedNodeId.value = "";
     issues.value = [];
     workspaceName.value = name || "workspace";
+    workspaceFilePath.value = ""; // 新建 = 尚未落盘,首次保存会走另存为对话框
     bump();
     console.success("workspace", `新建工作空间 ${workspaceName.value}`);
   }
@@ -450,6 +453,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
         exportCodeDir: exportCodeDir.value || undefined,
         cppNamespace: cppNamespace.value || undefined,
         engineSrcDir: engineSrcDir.value || undefined,
+        workspaceFilePath: workspaceFilePath.value || undefined,
       },
       trees: filteredTrees,
       globalBlackboards: globalBlackboards.value,
@@ -525,6 +529,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     if (res.config.exportCodeDir) exportCodeDir.value = res.config.exportCodeDir;
     if (res.config.cppNamespace) cppNamespace.value = res.config.cppNamespace;
     if (res.config.engineSrcDir) engineSrcDir.value = res.config.engineSrcDir;
+    if (res.config.workspaceFilePath) workspaceFilePath.value = res.config.workspaceFilePath;
     // 合并目录
     for (const cls of res.catalog.classes ?? []) {
       if (!classes.value.find((x) => x.className === cls.className)) classes.value.push(cls);
@@ -684,6 +689,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     language,
     cppNamespace,
     engineSrcDir,
+    workspaceFilePath,
     loadModelClasses,
     modelRawClasses,
     modelRawFunctions,

@@ -1,0 +1,104 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Workspace name="kdd_workspace" language="cpp" version="1">
+  <Config modelRoot="F:/0411/ccc/FZFOSimModel" exportCodeDir="F:/0411/ccc/GeneratedCpp/空地打击" cppNamespace="btproj" />
+  <meta>
+    <types>
+    </types>
+    <agents>
+      <agent classfullname="BTAirToMCog" base="behaviac::Agent" DisplayName="空地打击认知" IsRefType="true">
+        <Method Name="Get_Sensor_Status" DisplayName="Get_Sensor_Status" Class="BTAirToMCog" Static="false" Public="true" istask="false">
+          <Param Name="status" Type="CyberBooleanType" IsRef="true" DisplayName="status" />
+        </Method>
+        <Method Name="ConfigureOnUnit" DisplayName="ConfigureOnUnit" Class="BTAirToMCog" Static="false" Public="true" istask="false" />
+        <Method Name="Sensor_Open" DisplayName="Sensor_Open" Class="BTAirToMCog" Static="false" Public="true" istask="false" />
+        <Method Name="Is_Found_Target" DisplayName="Is_Found_Target" Class="BTAirToMCog" Static="false" Public="true" istask="false">
+          <Param Name="range" Type="CyberRealType" IsRef="true" DisplayName="range" />
+        </Method>
+        <Method Name="Judge_Range" DisplayName="Judge_Range" Class="BTAirToMCog" Static="false" Public="true" istask="false">
+          <Param Name="min_range" Type="CyberRealType" DisplayName="min_range" />
+          <Param Name="range" Type="CyberRealType" IsRef="true" DisplayName="range" />
+        </Method>
+        <Method Name="Fire" DisplayName="Fire" Class="BTAirToMCog" Static="false" Public="true" istask="false" />
+        <Method Name="Check_Weaspon_Enable" DisplayName="Check_Weaspon_Enable" Class="BTAirToMCog" Static="false" Public="true" istask="false">
+          <Param Name="time" Type="CyberRealType" DisplayName="time" />
+        </Method>
+        <Method Name="Fly_Status" DisplayName="Fly_Status" Class="BTAirToMCog" Static="false" Public="true" istask="false" />
+        <Method Name="Fight_Status" DisplayName="Fight_Status" Class="BTAirToMCog" Static="false" Public="true" istask="false" />
+        <Method Name="Fire_Again_Status" DisplayName="Fire_Again_Status" Class="BTAirToMCog" Static="false" Public="true" istask="false" />
+        <Method Name="Return" DisplayName="Return" Class="BTAirToMCog" Static="false" Public="true" istask="false" />
+        <Method Name="Fly_to_Fight_congition" DisplayName="Fly_to_Fight_congition" Class="BTAirToMCog" Static="false" Public="true" istask="false" />
+        <Method Name="Fight_To_Fire_Congition" DisplayName="Fight_To_Fire_Congition" Class="BTAirToMCog" Static="false" Public="true" istask="false" />
+        <Method Name="Fire_To_Return_Congition" DisplayName="Fire_To_Return_Congition" Class="BTAirToMCog" Static="false" Public="true" istask="false" />
+        <Method Name="Fight_Again_Congition" DisplayName="Fight_Again_Congition" Class="BTAirToMCog" Static="false" Public="true" istask="false" />
+      </agent>
+      <agent classfullname="FzFixedWing" base="behaviac::Agent" DisplayName="FzFixedWing" IsRefType="true" />
+      <agent classfullname="FzRoutineFlight" base="behaviac::Agent" DisplayName="FzRoutineFlight" IsRefType="true" />
+      <agent classfullname="FzAPSDP" base="behaviac::Agent" DisplayName="FzAPSDP" IsRefType="true" />
+      <agent classfullname="FzBaseRadar" base="behaviac::Agent" DisplayName="FzBaseRadar" IsRefType="true" />
+      <agent classfullname="FzASMWeaponSys" base="behaviac::Agent" DisplayName="FzASMWeaponSys" IsRefType="true" />
+      <agent classfullname="FzActiveASMMunit" base="behaviac::Agent" DisplayName="FzActiveASMMunit" IsRefType="true" />
+      <agent classfullname="DamageEffect" base="behaviac::Agent" DisplayName="DamageEffect" IsRefType="true" />
+      <agent classfullname="FzBaseC3I" base="behaviac::Agent" DisplayName="FzBaseC3I" IsRefType="true" />
+      <agent classfullname="FzComRadio" base="behaviac::Agent" DisplayName="FzComRadio" IsRefType="true" />
+    </agents>
+    <instances />
+  </meta>
+  <GlobalBlackboards>
+  </GlobalBlackboards>
+  <Behaviors>
+    <Behavior name="air_to_m" kind="behavior_tree">
+      <Root id="1" projectType="行为树" name="air_to_m">
+        <Blackboards />
+        <ReferencedBehaviorTrees />
+        <Sequence id="1" name="Sequence">
+          <Condition id="2" name="Condition" className="BTAirToMCog">
+            <Action id="5" name="Action" function="Get_Sensor_Status" className="BTAirToMCog" />
+            <Action id="6" name="Action" function="ConfigureOnUnit" className="BTAirToMCog" />
+            <Action id="7" name="Action" function="Sensor_Open" className="BTAirToMCog" />
+          </Condition>
+          <Condition id="3" name="Condition" className="BTAirToMCog">
+            <Action id="8" name="Action" function="Is_Found_Target" className="BTAirToMCog" />
+            <Condition id="9" name="Condition" className="BTAirToMCog">
+              <Action id="11" name="Action" function="Judge_Range" className="BTAirToMCog">
+                <Inputs>
+                  <Input name="min_range" type="Real" value="80000" />
+                </Inputs>
+              </Action>
+              <Action id="12" name="Action" function="Fire" className="BTAirToMCog" />
+              <Action id="13" name="Action" function="ConfigureOnUnit" className="BTAirToMCog" />
+            </Condition>
+            <Action id="10" name="Action" function="ConfigureOnUnit" className="BTAirToMCog" />
+          </Condition>
+          <Action id="4" name="Action" function="Check_Weaspon_Enable" className="BTAirToMCog">
+            <Inputs>
+              <Input name="time" type="Real" value="1000" />
+            </Inputs>
+          </Action>
+        </Sequence>
+      </Root>
+    </Behavior>
+    <Behavior name="fight_status" kind="state_machine">
+      <Root id="0" projectType="状态机" name="fight_status">
+        <State id="1" name="Fly_Status" action="Fly_Status" behaviac_tree="fly_bt" className="BTAirToMCog">
+          <ConditionTransform id="5" name="Fly_to_Fight_congition" action="Fly_to_Fight_congition" className="BTAirToMCog">
+            <State id="2" name="Fight_Status" action="Fight_Status" behaviac_tree="fight_bt" className="BTAirToMCog">
+              <ConditionTransform id="6" name="Fight_To_Fire_Congition" action="Fight_To_Fire_Congition" className="BTAirToMCog">
+                <State id="3" name="Fire_Again_Status" action="Fire_Again_Status" className="BTAirToMCog">
+                  <ConditionTransform id="7" name="Fight_Again_Congition" action="Fight_Again_Congition" className="BTAirToMCog">
+                    <Goto id="2" />
+                  </ConditionTransform>
+                  <ConditionTransform id="8" name="Fire_To_Return_Congition" action="Fire_To_Return_Congition" className="BTAirToMCog">
+                    <State id="4" name="Return" action="Return" className="BTAirToMCog" />
+                  </ConditionTransform>
+                </State>
+              </ConditionTransform>
+              <ConditionTransform id="9" name="Fire_To_Return_Congition" action="Fire_To_Return_Congition" className="BTAirToMCog">
+                <Goto id="4" />
+              </ConditionTransform>
+            </State>
+          </ConditionTransform>
+        </State>
+      </Root>
+    </Behavior>
+  </Behaviors>
+</Workspace>

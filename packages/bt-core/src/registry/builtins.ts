@@ -264,13 +264,17 @@ function builtins(): NodeDefinition[] {
     "等待节点(映射为 Action,导出元素为 Action)。需绑定一个等待类宿主函数。";
   list.push(wait);
 
-  // Condition
+  // Condition —— 叶子条件谓词。对齐:
+  //   - C++ 新引擎 bt_xml_loader (L525):Condition must be a leaf;
+  //   - vue2 nodeConfig.js L484:'condition' → 'Condition' 分类在 condition 叶子类;
+  //   - 结构分支一律走 IfElse(恰好 3 子)。
+  // 老 .bt 里 <Condition><Action/><Action/></Condition> 会由 importer 归一成 Sequence(见 xmlParser)。
   list.push({
     nodeType: "Condition",
     runtimeKind: "Condition",
     xmlElement: "Condition",
     displayName: "条件",
-    category: "Condition",
+    category: "Action",
     icon: "help-circle",
     colorToken: "accent",
     minChildren: 0,
@@ -278,7 +282,8 @@ function builtins(): NodeDefinition[] {
     inputPort: IN_SINGLE,
     outputPort: OUT_NONE,
     fosimSupported: true,
-    description: "条件判断。可用函数返回值或对输出 MAL 字段做比较(comparetype=Output)。叶子节点。",
+    description:
+      "条件谓词(叶子):绑函数,或用 compareType=Output 做函数返回值比较。结构分支请用「条件分支(IfElse)」。",
     properties: [
       P_NAME,
       P_FUNCTION,
@@ -288,7 +293,7 @@ function builtins(): NodeDefinition[] {
         displayName: "比较模式",
         category: "控制",
         editorType: "enum",
-        displayMode: "parameter",
+        displayMode: "advanced",
         required: false,
         readonly: false,
         noExport: false,
@@ -301,7 +306,7 @@ function builtins(): NodeDefinition[] {
         displayName: "比较字段",
         category: "控制",
         editorType: "text",
-        displayMode: "parameter",
+        displayMode: "advanced",
         required: false,
         readonly: false,
         noExport: false,
@@ -314,7 +319,7 @@ function builtins(): NodeDefinition[] {
         displayName: "比较运算",
         category: "控制",
         editorType: "compare-op",
-        displayMode: "parameter",
+        displayMode: "advanced",
         required: false,
         readonly: false,
         noExport: false,
@@ -327,7 +332,7 @@ function builtins(): NodeDefinition[] {
         displayName: "比较值",
         category: "控制",
         editorType: "mal-value",
-        displayMode: "parameter",
+        displayMode: "advanced",
         required: false,
         readonly: false,
         noExport: false,
@@ -339,13 +344,14 @@ function builtins(): NodeDefinition[] {
     ],
   });
 
-  // ConditionTransform
+  // ConditionTransform —— FSM 专用(paradigm=fsm),BT 面板不列出。
+  // 保留定义以便老 .bt 里遗留 <ConditionTransform> 读回时不落成 restricted。
   list.push({
     nodeType: "ConditionTransform",
     runtimeKind: "ConditionTransform",
     xmlElement: "ConditionTransform",
     displayName: "条件变换",
-    category: "Condition",
+    category: "Utility",
     icon: "shuffle",
     colorToken: "accent",
     minChildren: 0,
@@ -353,7 +359,8 @@ function builtins(): NodeDefinition[] {
     inputPort: IN_SINGLE,
     outputPort: OUT_NONE,
     fosimSupported: true,
-    description: "把函数查询结果变换为条件状态。叶子节点。",
+    paradigm: "fsm",
+    description: "FSM 条件变换。把函数查询结果变换为条件状态。叶子节点。",
     properties: [P_NAME, P_FUNCTION, P_TARGET, P_COMMENT],
   });
 
@@ -531,19 +538,48 @@ function builtins(): NodeDefinition[] {
   });
 
   list.push(
-    transition("ConditionTransition", "ConditionTransform", "条件跳转", "根据条件结果决定是否跳转到目标状态。", [
+    transition("ConditionTransition", "ConditionTransform", "条件跳转", "根据条件结果决定是否跳转到目标状态(默认按函数返回状态;切到「输出比较」时对比 output 字段与常量)。", [
       P_FUNCTION,
+      // 与 Condition 对齐:默认「函数比较」看返回状态,不显示 op/value;
+      // 切到「输出比较」才出现比较字段/运算/比较值。
+      {
+        propName: "compareType",
+        runtimeField: "compareType",
+        displayName: "比较模式",
+        category: "控制",
+        editorType: "enum",
+        displayMode: "advanced",
+        required: false,
+        readonly: false,
+        noExport: false,
+        noSave: false,
+        enumValues: ["Function", "Output"],
+      },
+      {
+        propName: "compareOutputName",
+        runtimeField: "compareOutputName",
+        displayName: "比较字段",
+        category: "控制",
+        editorType: "text",
+        displayMode: "advanced",
+        required: false,
+        readonly: false,
+        noExport: false,
+        noSave: false,
+        dependsOn: "compareType",
+      },
       {
         propName: "compareOp",
         runtimeField: "compareOp",
         displayName: "比较运算",
         category: "控制",
         editorType: "compare-op",
-        displayMode: "parameter",
+        displayMode: "advanced",
         required: false,
         readonly: false,
         noExport: false,
         noSave: false,
+        dependsOn: "compareType",
       },
       {
         propName: "compareValue",
@@ -551,11 +587,12 @@ function builtins(): NodeDefinition[] {
         displayName: "比较值",
         category: "控制",
         editorType: "mal-value",
-        displayMode: "parameter",
+        displayMode: "advanced",
         required: false,
         readonly: false,
         noExport: false,
         noSave: false,
+        dependsOn: "compareType",
       },
     ]),
   );
@@ -583,37 +620,58 @@ function builtins(): NodeDefinition[] {
     def.paradigm = def.nodeType === "Root" ? "both" : "bt";
   }
 
-  // 应用 vue2 节点配色/渐变/形状(对齐 F:\0411\vue2 src/config/nodeConfig.js)
-  const VUE2_VISUALS: Record<string, { color: string; gradient: [string, string]; shape: "rect" | "ellipse" | "polygon" }> = {
-    Root: { color: "#409EFF", gradient: ["#667eea", "#764ba2"], shape: "rect" },
-    Action: { color: "#ffd700", gradient: ["#f093fb", "#f5576c"], shape: "ellipse" },
-    Wait: { color: "#ffd700", gradient: ["#f093fb", "#f5576c"], shape: "ellipse" },
-    Condition: { color: "#67C23A", gradient: ["#4facfe", "#00f2fe"], shape: "polygon" },
-    ConditionTransform: { color: "#67C23A", gradient: ["#4facfe", "#00f2fe"], shape: "polygon" },
-    Sequence: { color: "#E6A23C", gradient: ["#fa709a", "#fee140"], shape: "rect" },
-    Selector: { color: "#909399", gradient: ["#30cfd0", "#330867"], shape: "rect" },
-    Parallel: { color: "#00BCD4", gradient: ["#a8edea", "#fed6e3"], shape: "rect" },
-    Subtree: { color: "#9c27b0", gradient: ["#9c27b0", "#ba68c8"], shape: "rect" },
-    Or: { color: "#67C23A", gradient: ["#ffecd2", "#fcb69f"], shape: "polygon" },
-    And: { color: "#409EFF", gradient: ["#ff9a9e", "#fecfef"], shape: "polygon" },
-    End: { color: "#909399", gradient: ["#d299c2", "#fef9d7"], shape: "ellipse" },
-    Null: { color: "#C0C4CC", gradient: ["#89f7fe", "#66a6ff"], shape: "ellipse" },
-    Loop: { color: "#E6A23C", gradient: ["#fad961", "#f76b1c"], shape: "rect" },
-    SuccessUntil: { color: "#52c41a", gradient: ["#52c41a", "#73d13d"], shape: "rect" },
-    FailureUntil: { color: "#ff6b6b", gradient: ["#ff6b6b", "#ee5a6f"], shape: "rect" },
-    AlwaysSuccess: { color: "#52c41a", gradient: ["#52c41a", "#73d13d"], shape: "rect" },
-    AlwaysFailure: { color: "#ff4d4f", gradient: ["#ff4d4f", "#ff7875"], shape: "rect" },
-    IfElse: { color: "#67C23A", gradient: ["#96deda", "#50c9c3"], shape: "rect" },
-    MonitorBranch: { color: "#9c27b0", gradient: ["#9c27b0", "#ba68c8"], shape: "rect" },
-    SelectMonitor: { color: "#9c27b0", gradient: ["#9c27b0", "#ba68c8"], shape: "rect" },
-    Invert: { color: "#f5b65c", gradient: ["#fad961", "#f76b1c"], shape: "rect" },
-    State: { color: "#409EFF", gradient: ["#667eea", "#764ba2"], shape: "rect" },
-    ConditionTransition: { color: "#67C23A", gradient: ["#4facfe", "#00f2fe"], shape: "polygon" },
-    StateTransition: { color: "#E6A23C", gradient: ["#f093fb", "#f5576c"], shape: "polygon" },
-    Transition: { color: "#E6A23C", gradient: ["#f093fb", "#f5576c"], shape: "polygon" },
+  // 产品化节点配色(2026 版):按 category 收敛为语义色板,不再每个节点一种糖果糖果双色渐变。
+  //   - Root/子树 → 品牌蓝(结构性入口)
+  //   - Composite(顺序/选择/并行/And/Or/IfElse/…) → 中性靛(骨架)
+  //   - Condition/Transition(逻辑判断) → 青绿(判断/流转)
+  //   - Action/Wait(执行) → 琥珀(动作)
+  //   - Decorator(循环/直到/恒/反相) → 紫(装饰)
+  //   - End/Null(终止/空) → 中灰(收敛)
+  //   - AlwaysSuccess / SuccessUntil → 绿状态色;AlwaysFailure / FailureUntil → 红状态色。
+  // 渐变改为"同色系顶部提亮 8%"的浅→深单向过渡,视觉柔和,不再撞色。
+  const PBrand = { c: "#4c8dff", g: ["#5b98ff", "#3d7be6"] as [string, string] };
+  const PComposite = { c: "#7c8db5", g: ["#8a9bc2", "#697aa4"] as [string, string] };
+  const PLogic = { c: "#3fb8a4", g: ["#4dc4b0", "#2fa290"] as [string, string] };
+  const PAction = { c: "#e0b341", g: ["#eac153", "#c99b2c"] as [string, string] };
+  const PDecorator = { c: "#9a7be0", g: ["#a88ce6", "#8a6bd0"] as [string, string] };
+  // 条件分支专属色:紫粉(magenta),既区别于 Composite 灰(Sequence/Selector)、
+  // 也区别于 Condition 青绿(叶子谓词)、Decorator 淡紫。视觉上明确"决策分岔"语义。
+  const PBranch = { c: "#c266d9", g: ["#d178e6", "#a84fc2"] as [string, string] };
+  const PUtil = { c: "#7d8590", g: ["#8b939e", "#6a727d"] as [string, string] };
+  const PSuccess = { c: "#3fb950", g: ["#4fc760", "#2ea241"] as [string, string] };
+  const PDanger = { c: "#f85149", g: ["#fa6259", "#df3d36"] as [string, string] };
+
+  const VISUALS: Record<string, { color: string; gradient: [string, string]; shape: "rect" | "ellipse" | "polygon" }> = {
+    Root: { color: PBrand.c, gradient: PBrand.g, shape: "rect" },
+    Subtree: { color: PBrand.c, gradient: PBrand.g, shape: "rect" },
+    Sequence: { color: PComposite.c, gradient: PComposite.g, shape: "rect" },
+    Selector: { color: PComposite.c, gradient: PComposite.g, shape: "rect" },
+    Parallel: { color: PComposite.c, gradient: PComposite.g, shape: "rect" },
+    And: { color: PComposite.c, gradient: PComposite.g, shape: "polygon" },
+    Or: { color: PComposite.c, gradient: PComposite.g, shape: "polygon" },
+    // 条件分支/监视分支:菱形(UML 决策符)+ 独立紫粉,与 Sequence/Selector 拉开。
+    IfElse: { color: PBranch.c, gradient: PBranch.g, shape: "polygon" },
+    MonitorBranch: { color: PBranch.c, gradient: PBranch.g, shape: "polygon" },
+    SelectMonitor: { color: PBranch.c, gradient: PBranch.g, shape: "polygon" },
+    Condition: { color: PLogic.c, gradient: PLogic.g, shape: "polygon" },
+    ConditionTransform: { color: PLogic.c, gradient: PLogic.g, shape: "polygon" },
+    ConditionTransition: { color: PLogic.c, gradient: PLogic.g, shape: "polygon" },
+    StateTransition: { color: PLogic.c, gradient: PLogic.g, shape: "polygon" },
+    Transition: { color: PLogic.c, gradient: PLogic.g, shape: "polygon" },
+    Action: { color: PAction.c, gradient: PAction.g, shape: "ellipse" },
+    Wait: { color: PAction.c, gradient: PAction.g, shape: "ellipse" },
+    Loop: { color: PDecorator.c, gradient: PDecorator.g, shape: "rect" },
+    Invert: { color: PDecorator.c, gradient: PDecorator.g, shape: "rect" },
+    SuccessUntil: { color: PSuccess.c, gradient: PSuccess.g, shape: "rect" },
+    FailureUntil: { color: PDanger.c, gradient: PDanger.g, shape: "rect" },
+    AlwaysSuccess: { color: PSuccess.c, gradient: PSuccess.g, shape: "rect" },
+    AlwaysFailure: { color: PDanger.c, gradient: PDanger.g, shape: "rect" },
+    State: { color: PBrand.c, gradient: PBrand.g, shape: "rect" },
+    End: { color: PUtil.c, gradient: PUtil.g, shape: "ellipse" },
+    Null: { color: PUtil.c, gradient: PUtil.g, shape: "ellipse" },
   };
   for (const def of list) {
-    const v = VUE2_VISUALS[def.nodeType];
+    const v = VISUALS[def.nodeType];
     if (v) {
       def.color = v.color;
       def.gradient = v.gradient;

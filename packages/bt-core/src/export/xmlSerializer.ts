@@ -3,11 +3,11 @@
  *
  * 语法基线(实测自 bt_xml_loader.cpp 与样例 .bt):
  *  - 头:<?xml version='1.0' encoding='utf-8'?>
- *  - 根:<Root id projectType="行为树" name btTemplateId modelId [cognition]>
+ *  - 根:<Root id projectType="行为树" name btTemplateId modelId>
  *  - <Blackboards><Blackboard linked scope name id><Variable key id type value/></...>
  *  - <ReferencedBehaviorTrees/>
  *  - 节点元素名取 xmlType(Loop->DecoratorLoop / Subtree->SubTree 等)
- *  - Action/Condition:function | script | scriptRef;组件 mdataName/className/typeName/componentId/componentName
+ *  - Action/Condition:function | script | scriptRef;类归属仅 className(componentId 由挂接流程写到 sdata,不在此层)
  *  - DecoratorLoop/SuccessUntil/FailureUntil:count;Parallel:successThreshold/failureThreshold
  *  - SubTree:btTemplateId/btInstanceId/paramStates;End:status/externalTree;captureInputOnEnter->inputCapture="onEnter"
  *  - <Inputs><Input name type value source="blackboard" blackboardKey variableKey/></Inputs>
@@ -53,6 +53,32 @@ export function mapVariableType(t: string | undefined): string {
 /** workspaceXml 用的 <Variable type> fallback 默认串(master 上是 "CyberStringType",老分支上是 "String")。 */
 export const DEFAULT_VARIABLE_TYPE = "String";
 
+/**
+ * 黑板变量默认值兜底(对齐老引擎 .bt Variable 必带 value 属性)。
+ * 空/undefined 时按类型返回一个"零值":Integer/Julian → "0", Real → "0.000000",
+ * Boolean → "false", Coordinate → "0.000000,0.000000", 其他/String → ""。
+ * 老引擎 loader 读到 value="" 也是合法的(String 空串),但缺失 value 属性会解析失败。
+ */
+export function defaultValueForType(shortType: string): string {
+  switch (shortType) {
+    case "Integer":
+    case "Julian":
+      return "0";
+    case "Real":
+      return "0.000000";
+    case "Boolean":
+      return "false";
+    case "Coordinate":
+      return "0.000000,0.000000";
+    case "String":
+    default:
+      return "";
+  }
+}
+export function resolveVarValue(raw: string | undefined, shortType: string): string {
+  return raw === undefined || raw === "" ? defaultValueForType(shortType) : raw;
+}
+
 const XML_HEADER = "<?xml version='1.0' encoding='utf-8'?>";
 const INDENT = "  ";
 
@@ -92,17 +118,13 @@ function serializeNode(node: BTNodeDef, level: number, scopeByBoardId: Map<strin
   const lines: string[] = [];
   let open = `${pad(level)}<${el}${attr("id", node.id)}${attr("name", node.name)}`;
 
-  // 函数/脚本(老分支:决策函数挂 CyberCognitionImpl,不输出组件选择器;
-  //                靠 FindDecisionFunction 下行转换 + GetMountedModels() 命中)
+  // 函数/脚本:工作空间/模板层只写 function + className(自由类型空间的类归属)。
+  // componentId 是运行时挂接产物(指向 sdata unit 里对应 ModelData 的 data_id UUID),
+  // 由场景挂接流程写到 sdata BehaviorTreeInstance 里,不属于工作空间 .bt 模板层 —— 这里一律不输出。
+  // mdataName 同理是运行时字段,模板层不写。
   if (FUNCTION_ELEMENTS.has(el)) {
     open += attr("function", node.functionName);
-    // 老引擎 bt_runtime 仍读 mdataName/componentId(支持新 loader),
-    // 但老想定不挂 uuid——保留属性但仅在 modelName/componentId 非空时输出,
-    // 让用户在新流程下可选填,默认空就不出现。
-    const t = node.target;
-    if (t.modelName) open += attr("mdataName", t.modelName);
-    if (t.componentId) open += attr("componentId", t.componentId);
-    if (t.modelClass) open += attr("className", t.modelClass);
+    if (node.target.modelClass) open += attr("className", node.target.modelClass);
   }
 
   // 装饰器次数
@@ -201,8 +223,9 @@ function serializeBlackboards(blackboards: BlackboardDef[], level: number): stri
     }
     lines.push(`${head}>`);
     for (const v of vars) {
+      const short = mapVariableType(v.type);
       lines.push(
-        `${pad(level + 2)}<Variable${attr("key", v.key)}${attr("id", v.id)}${attr("type", mapVariableType(v.type))}${attr("value", v.value)} />`,
+        `${pad(level + 2)}<Variable${attr("key", v.key)}${attr("id", v.id)}${attr("type", short)} value="${xmlEscape(resolveVarValue(v.value, short))}" />`,
       );
     }
     lines.push(`${pad(level + 1)}</Blackboard>`);
@@ -227,8 +250,9 @@ export function serializeGlobalBlackboardsXml(blackboards: BlackboardDef[]): str
     }
     lines.push(`${head}>`);
     for (const v of vars) {
+      const short = mapVariableType(v.type);
       lines.push(
-        `    <Variable${attr("key", v.key)}${attr("id", v.id)}${attr("type", mapVariableType(v.type))}${attr("value", v.value)} />`,
+        `    <Variable${attr("key", v.key)}${attr("id", v.id)}${attr("type", short)} value="${xmlEscape(resolveVarValue(v.value, short))}" />`,
       );
     }
     lines.push("  </Blackboard>");
@@ -240,10 +264,9 @@ export function serializeGlobalBlackboardsXml(blackboards: BlackboardDef[]): str
 export function serializeBehaviorTreeXml(def: BehaviorTreeDef): string {
   if (!def.root) throw new Error("BehaviorTreeDef.root 为空,无法序列化");
   const lines: string[] = [XML_HEADER];
-  // 老引擎 .bt 的 <Root cognition="认知类名"> 是关键:LoadBehaviorTreeDefFromXML 据此匹配挂载组件。
-  // btTemplateId/modelId 是新流程的可选字段,空则不输出;cognition 为空时回退用 def.name(老 .bt 习惯)。
-  const cognitionName = def.cognition || def.name;
-  let rootOpen = `<Root${attr("id", def.id)}${attr("projectType", def.projectType)}${attr("name", def.name)}${attr("btTemplateId", def.behaviorTreeTemplateId)}${attr("modelId", def.modelId)}${attr("cognition", cognitionName)}>`;
+  // <Root> 属性:id / projectType / name / btTemplateId / modelId。
+  // 类型信息落在每个叶子的 className 上,由挂接闸门校验;Root 层不做绑类。
+  let rootOpen = `<Root${attr("id", def.id)}${attr("projectType", def.projectType)}${attr("name", def.name)}${attr("btTemplateId", def.behaviorTreeTemplateId)}${attr("modelId", def.modelId)}>`;
   lines.push(rootOpen);
   lines.push(serializeBlackboards(def.blackboards, 1));
 

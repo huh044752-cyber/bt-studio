@@ -14,10 +14,11 @@
 
 `functionOwnerClass(fn)`:取 `ownerClass`,否则取 `bindingTarget` 的 `类.方法` 前缀。
 
-## 根类函数绑定(vue2 模型)
+## 类归属:自由类型空间
 
-- 行为树有 `rootClassName`;在设计页选中 **Root** 节点可选择"根类"。
-- Action/Condition 的函数选择器只列出 `functionOwnerClass === rootClassName` 的函数。
+- 行为树**没有根类绑定**。Root/Behavior 层不写 `rootClass` / `cognition` 属性。
+- Action/Condition 的类归属由**每个叶子自己的 `className`** 决定 —— 从 `ws.classes` 全量类里自由选,再从该类的方法里选 `functionRef`。
+- 挂接到具体 Unit 时,`ScenarioAttachPage` 的 `validateTreeForUnit` 校验每个叶子的 `(className, functionRef)` 与 Unit 的 `components` + 该类下方法一致,全部通过才允许写盘。
 - 节点参数可绑定:**常量** 或 **黑板变量**(属性面板的"直接输入/▣变量"下拉);输出参数(`IsRef`)回写黑板。
 
 ## meta.xml 导入/导出

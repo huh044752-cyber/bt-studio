@@ -51,6 +51,26 @@ function cyberLabel(dt: DisplayType): string {
   }
 }
 
+/**
+ * 新变量的默认值按 displayType 兜底,对齐老引擎 .bt 里 <Variable value="..."> 的类型习惯:
+ *  bool → "false"、int/unitId/entityId → "0"、float → "0.000000"、
+ *  coord/position/vector → "0.000000,0.000000"、string/name → ""、enum → 该枚举首项(或 "")。
+ * 让"新建变量"零手动、零填空、零 malType 校验红。
+ */
+function defaultForDisplayType(dt: DisplayType, enumRef?: string): string {
+  if (enumRef) {
+    const e = ws.enums.find((x) => x.name === enumRef);
+    return e?.items?.[0]?.runtimeValue ?? "";
+  }
+  switch (dt) {
+    case "bool": return "false";
+    case "int": case "unitId": case "entityId": return "0";
+    case "float": return "0.000000";
+    case "coordinate": case "position": case "vector": return "0.000000,0.000000";
+    case "string": case "name": default: return "";
+  }
+}
+
 function createGlobal() {
   const name = newBbName.value.trim();
   if (!name || blackboards.value.find((b) => b.name === name)) {
@@ -66,14 +86,15 @@ function createGlobal() {
 
 function addVar() {
   if (!current.value) return;
+  const dt: DisplayType = "float";
   current.value.variables.push({
     variableId: newVariableId(),
     name: sanitizeVariableKey("new_var"),
     scope: current.value.scope === "global" ? "global" : "tree",
-    displayType: "float",
-    malType: "CYBER_MARGTYPE_REAL",
+    displayType: dt,
+    malType: resolveMalType(dt),
     valueFormat: "literal",
-    defaultValue: "0",
+    defaultValue: defaultForDisplayType(dt),
   });
   ws.bump();
 }
@@ -81,22 +102,36 @@ function addVar() {
 function onTypeChange(varId: string, raw: string) {
   const v = current.value?.variables.find((x) => x.variableId === varId);
   if (!v) return;
+  const prev = v.defaultValue;
+  let dt: DisplayType;
+  let enumRef: string | undefined;
   if (raw.startsWith("enum:")) {
-    const enumName = raw.slice(5);
-    const e = ws.enums.find((x) => x.name === enumName);
+    enumRef = raw.slice(5);
+    const e = ws.enums.find((x) => x.name === enumRef);
+    dt = "enum" as DisplayType;
     v.displayType = "enum";
-    v.enumRef = enumName;
+    v.enumRef = enumRef;
     v.malType = e?.malType ?? "CYBER_MARGTYPE_NAME";
   } else {
-    v.displayType = raw as DisplayType;
+    dt = raw as DisplayType;
+    v.displayType = dt;
     v.enumRef = undefined;
-    v.malType = resolveMalType(raw as DisplayType);
+    v.malType = resolveMalType(dt);
   }
+  // 切类型后原默认值多半失效(如 int="5" 切 bool);为空 / 校验挂 → 用新类型的默认填回。
+  const stillOk = prev !== undefined && prev !== "" &&
+    validateMalValueConversion(prev, v.malType as never).ok;
+  if (!stillOk) v.defaultValue = defaultForDisplayType(dt, enumRef);
 }
 
-function checkValue(value: string | undefined, malType?: string): string {
-  if (!malType) return "缺 malType";
-  const r = validateMalValueConversion(value, malType as never);
+/**
+ * 校验:优先用变量自带 malType;缺失(如从早期 workspace.xml 导入的变量没写 malType)
+ * 就按 displayType 兜底推断,避免 UI 侧无谓爆红。变量真正落盘前会被 sanitize 补齐。
+ */
+function checkValue(value: string | undefined, v: { malType?: string; displayType: DisplayType; enumRef?: string }): string {
+  const effectiveMal = v.malType ?? (v.enumRef ? "CYBER_MARGTYPE_NAME" : resolveMalType(v.displayType));
+  if (!effectiveMal || effectiveMal === "CYBER_MARGTYPE_INVALID") return "类型未解析";
+  const r = validateMalValueConversion(value, effectiveMal as never);
   return r.ok ? "✓" : r.message ?? "✗";
 }
 
@@ -201,9 +236,9 @@ function toggleLink(bbId: string) {
                     </optgroup>
                   </select>
                 </td>
-                <td class="tag info">{{ v.malType }}</td>
+                <td><span class="tag info mono">{{ v.malType || resolveMalType(v.displayType) }}</span></td>
                 <td><input class="input tiny" v-model="v.defaultValue" /></td>
-                <td :class="checkValue(v.defaultValue, v.malType) === '✓' ? 'ok' : 'err'">{{ checkValue(v.defaultValue, v.malType) }}</td>
+                <td :class="checkValue(v.defaultValue, v) === '✓' ? 'ok' : 'err'">{{ checkValue(v.defaultValue, v) }}</td>
               </tr>
             </tbody>
           </table>
@@ -233,7 +268,8 @@ function toggleLink(bbId: string) {
 .tbl { width: 100%; border-collapse: collapse; margin-top: 8px; }
 .tbl th { text-align: left; font-size: 10.5px; color: var(--muted-2); padding: 4px 6px; }
 .tbl td { padding: 3px 6px; border-bottom: 1px solid var(--line-soft); }
-.input.tiny, .select.tiny { height: 24px; font-size: 11px; }
+/* .input.tiny / .select.tiny 使用 theme.css 的全局尺寸(30px / 12px),
+ * 之前的 24px+11px 让"CyberOrientationType"这类长串在下拉里被裁,已迁移到全局。 */
 .ok { color: var(--ok); }
 .err { color: var(--err); }
 </style>

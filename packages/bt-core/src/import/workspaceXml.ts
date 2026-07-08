@@ -9,11 +9,13 @@ import { parseMetaObject } from "./metaXml.js";
 import { ImportPipeline } from "./ImportPipeline.js";
 import { parseFsmXml } from "./fsmXml.js";
 import { newVariableId } from "../model/ids.js";
+import { resolveMalType } from "../mal/malMapping.js";
+import type { CyberMARGType } from "../types/mal.js";
 
 export interface WorkspaceParseResult {
   name: string;
   language?: string;
-  config: { modelRoot?: string; exportCodeDir?: string; cppNamespace?: string; engineSrcDir?: string };
+  config: { modelRoot?: string; exportCodeDir?: string; cppNamespace?: string; engineSrcDir?: string; workspaceFilePath?: string };
   catalog: Partial<CatalogBundle>;
   globalBlackboards: Blackboard[];
   /** 已还原的行为树(BT + FSM) */
@@ -40,6 +42,7 @@ export function parseWorkspaceXml(xml: string): WorkspaceParseResult {
     exportCodeDir: cfgA["exportCodeDir"] || undefined,
     cppNamespace: cfgA["cppNamespace"] || undefined,
     engineSrcDir: cfgA["engineSrcDir"] || undefined,
+    workspaceFilePath: cfgA["workspaceFilePath"] || undefined,
   };
 
   // meta(结构化解析)
@@ -60,11 +63,17 @@ export function parseWorkspaceXml(xml: string): WorkspaceParseResult {
       const vars: Variable[] = [];
       for (const vm of (bbm[2] ?? "").matchAll(/<Variable\b([^>]*?)\/>/g)) {
         const va = attrsOf(vm[1]!);
+        const displayType = (va["displayType"] as Variable["displayType"]) ?? "string";
+        // 老工作空间 XML 只写 displayType/value,没有 malType/valueFormat,导入后 VariablesPage
+        // 的类型校验会直接爆"缺 malType"红字。这里按 displayType 反向推断 malType,
+        // 让往返恢复出的变量能立即通过校验;若 displayType 就是 enum,交给上层再补 enumRef。
+        const malType = resolveMalType(displayType) as CyberMARGType;
         vars.push({
           variableId: va["id"] ?? newVariableId(),
           name: va["key"] ?? "var",
           scope: "global",
-          displayType: (va["displayType"] as Variable["displayType"]) ?? "string",
+          displayType,
+          malType,
           valueFormat: "literal",
           defaultValue: va["value"],
         });
@@ -92,7 +101,6 @@ export function parseWorkspaceXml(xml: string): WorkspaceParseResult {
           fsmTree.treeName = a["name"];
           fsmTree.displayName = a["name"];
         }
-        if (a["rootClass"]) fsmTree.rootClassName = a["rootClass"];
         fsmTree.projectKind = "state_machine";
         behaviorTrees.push(fsmTree);
       } catch {
@@ -104,7 +112,6 @@ export function parseWorkspaceXml(xml: string): WorkspaceParseResult {
       const res = importer.importRuntimeXml(inner);
       res.tree.treeName = a["name"] ?? res.tree.treeName;
       res.tree.displayName = a["name"] ?? res.tree.displayName;
-      if (a["rootClass"]) res.tree.rootClassName = a["rootClass"];
       behaviorTrees.push(res.tree);
     } catch {
       /* 跳过无法解析的行为 */

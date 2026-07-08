@@ -29,10 +29,12 @@ const info = computed(() => {
   return node.value ? describeNode(node.value, ws.currentTree, ws.functionCatalog) : undefined;
 });
 const schema = computed(() => def.value?.properties ?? []);
-// Root 不进这里:根节点在设计态不绑类/函数,类的绑定是场景挂接阶段的事(模板 → 实体组件类)。
-const isFnNode = computed(() =>
-  ["Action", "Condition", "ConditionTransform", "Wait", "State", "ConditionTransition"].includes(node.value?.nodeType ?? ""),
-);
+// Root 不绑类/函数(场景挂接阶段绑定)。Condition 已收敛为叶子谓词(对齐 C++ 新引擎)。
+const isFnNode = computed(() => {
+  const n = node.value;
+  if (!n) return false;
+  return ["Action", "Condition", "ConditionTransform", "Wait", "State", "ConditionTransition"].includes(n.nodeType);
+});
 
 const funcOutputs = computed(() => info.value?.outputs ?? []);
 const hasFuncOutput = computed(() => funcOutputs.value.length > 0);
@@ -41,8 +43,13 @@ const compareOpLabel = (op: string) => COMPARE_OP_LABELS[op as keyof typeof COMP
 function showField(p: { propName: string; dependsOn?: string }): boolean {
   const n = node.value;
   if (!n) return false;
-  if (p.propName === "compareOutputName") return n.compareType === "Output";
-  if (p.dependsOn === "compareType" && n.nodeType === "Condition") return !!n.compareType;
+  // 比较模式:默认「函数比较」看返回状态,不显示 op/value/outputName;仅 Output 才显示比较三件套。
+  // 对齐 vue2 ConditionPropertiesPanel:comparisonMode==='function' 只显示函数+参数;
+  // 只有 comparisonMode==='output' 才显示 operator/left(compareOutputName)/right(compareValue)。
+  // 覆盖 Condition + ConditionTransition(两者都能走「输出比较」)。
+  if (p.dependsOn === "compareType" && (n.nodeType === "Condition" || n.nodeType === "ConditionTransition")) {
+    return n.compareType === "Output";
+  }
   return true;
 }
 
@@ -225,8 +232,8 @@ function setOutputVar(bindingIndex: number, variableId: string) {
         <span class="lbl">类 (Class) <span class="req">*</span></span>
         <select class="select" :value="nodeClass" @change="setNodeClass(($event.target as HTMLSelectElement).value)">
           <option value="">— 选择类 —</option>
-          <option v-for="c in modelClasses" :key="c.classId" :value="c.className">
-            {{ c.displayName || c.className }}{{ c.source === 'model' ? '' : ' [用户]' }}
+          <option v-for="c in modelClasses" :key="c.classId" :value="c.className" :title="c.description || c.displayName || c.className">
+            {{ c.className }}{{ c.description ? ' - ' + c.description : (c.displayName && c.displayName !== c.className ? ' - ' + c.displayName : '') }}{{ c.source === 'model' ? '' : ' [用户]' }}
           </option>
         </select>
       </label>
@@ -541,8 +548,5 @@ function setOutputVar(bindingIndex: number, variableId: string) {
   font-size: 11.5px;
   min-width: 90px;
 }
-.input.tiny {
-  height: 24px;
-  font-size: 11px;
-}
+/* .input.tiny 高度/字号统一由 theme.css 提供(30px/12px)。 */
 </style>

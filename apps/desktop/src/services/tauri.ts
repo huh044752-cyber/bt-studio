@@ -19,15 +19,21 @@ async function getInvoke(): Promise<InvokeFn | null> {
   return cachedInvoke;
 }
 
-/** 通用调用:Tauri 优先,否则返回 null 让调用方走浏览器降级。 */
+/** 通用调用:Tauri 优先,否则返回 null 让调用方走浏览器降级。
+ *  invoke 本身也 try/catch —— Rust 侧命令未注册(dev 阶段 rebuild 前的新命令)/内部 panic 时,
+ *  不再一路 throw 让 UI 静默死掉,而是与"未在 Tauri 中"同一路径,让调用方走降级。 */
 export async function invokeOpt<T>(
   cmd: string,
   args?: Record<string, unknown>,
-): Promise<{ ok: true; data: T } | { ok: false; data: null }> {
+): Promise<{ ok: true; data: T } | { ok: false; data: null; error?: string }> {
   const invoke = await getInvoke();
   if (!invoke) return { ok: false, data: null };
-  const data = await invoke<T>(cmd, args);
-  return { ok: true, data };
+  try {
+    const data = await invoke<T>(cmd, args);
+    return { ok: true, data };
+  } catch (e) {
+    return { ok: false, data: null, error: String(e) };
+  }
 }
 
 /** 浏览器降级:把内容作为文件下载。 */
@@ -129,8 +135,11 @@ interface FsWritable {
   close(): Promise<void>;
 }
 interface FsFileHandle {
+  name: string;
   createWritable(): Promise<FsWritable>;
   getFile(): Promise<FsFile>;
+  requestPermission?(opts: { mode: string }): Promise<string>;
+  queryPermission?(opts: { mode: string }): Promise<string>;
 }
 export interface FsDirHandle {
   name: string;
@@ -138,6 +147,78 @@ export interface FsDirHandle {
   getFileHandle(name: string, opts?: { create?: boolean }): Promise<FsFileHandle>;
   requestPermission?(opts: { mode: string }): Promise<string>;
   queryPermission?(opts: { mode: string }): Promise<string>;
+}
+
+/** 浏览器 File System Access API 缓存的文件句柄。前端按 tag 存,后续写入用同一句柄不再弹框。 */
+const _savedFileHandles = new Map<string, FsFileHandle>();
+const BROWSER_PATH_MARK = "browser::";
+
+/** 浏览器是否有可用的"另存为"API(Chromium 系原生;Firefox/Safari 无)。 */
+export function browserHasSaveFilePicker(): boolean {
+  return typeof window !== "undefined"
+    && typeof (window as unknown as { showSaveFilePicker?: unknown }).showSaveFilePicker === "function";
+}
+
+/**
+ * 浏览器 File System Access API 弹"另存为",拿到 FileHandle 并按 tag 缓存。
+ * 返回文件名(浏览器沙箱下拿不到绝对路径,前端加 browser:: 前缀展示)。
+ * 后续调用 writeToCachedSaveFile(tag, content) 会直接写到用户当初选的那个文件,不再弹框。
+ */
+async function pickSaveHandleAndCache(
+  tag: string,
+  suggestedName: string,
+  filters?: FileFilter[],
+): Promise<string | null> {
+  const anyWin = window as unknown as {
+    showSaveFilePicker?: (opts: {
+      suggestedName?: string;
+      types?: { description: string; accept: Record<string, string[]> }[];
+    }) => Promise<FsFileHandle>;
+  };
+  if (typeof anyWin.showSaveFilePicker !== "function") return null;
+  const types = (filters ?? []).map((f) => {
+    const exts = f.extensions.map((e) => "." + e.replace(/^\./, ""));
+    return { description: f.name, accept: { "application/xml": exts } };
+  });
+  try {
+    const h = await anyWin.showSaveFilePicker({ suggestedName, types });
+    _savedFileHandles.set(tag, h);
+    return `${BROWSER_PATH_MARK}${h.name}`;
+  } catch {
+    return null; // 用户取消 / 不支持
+  }
+}
+
+/**
+ * 向按 tag 缓存的 FileHandle 写入文本。没有缓存(用户未选过 or Tauri 模式)→ 返回 null。
+ * 权限过期会先请求 readwrite;拒绝则抛错(不静默下载)。
+ */
+export async function writeToCachedSaveFile(
+  tag: string,
+  content: string,
+): Promise<{ path: string } | null> {
+  const h = _savedFileHandles.get(tag);
+  if (!h) return null;
+  if (h.requestPermission) {
+    let perm = "granted";
+    if (h.queryPermission) perm = await h.queryPermission({ mode: "readwrite" });
+    if (perm !== "granted") perm = await h.requestPermission({ mode: "readwrite" });
+    if (perm !== "granted") throw new Error("用户未授予该文件写入权限");
+  }
+  const w = await h.createWritable();
+  await w.write(content);
+  await w.close();
+  return { path: `${BROWSER_PATH_MARK}${h.name}` };
+}
+
+/** 判断某 tag 的浏览器另存句柄是否已缓存(UI 可用它决定"保存"按钮直写还是弹框)。 */
+export function hasCachedSaveFile(tag: string): boolean {
+  return _savedFileHandles.has(tag);
+}
+
+/** 清空某 tag 的缓存句柄(如用户"重新选择位置")。 */
+export function clearCachedSaveFile(tag: string): void {
+  _savedFileHandles.delete(tag);
 }
 
 /**
@@ -258,23 +339,47 @@ export async function fetchBundledRuntime(): Promise<{ path: string; content: st
   return out;
 }
 
-const ENGINE_CORE_CMAKE = `# fosim_engine_core —— 从 FOSim 引擎 modules/extern 抽取的【真实】行为树/状态机核心库:
-#   bt_xml_loader(Action/Sequence/Selector/… 节点 XML 解析)+ bt_runtime(映射/绑定/调度)
-#   + state_machine_*(状态机)+ core/mal(CyberMalImpl)+ pugi(XML)。verbatim,不魔改。
-# 注意:bt_runtime.cpp / agent.cpp 引用引擎业务头(models/cognition、modules/unit、CyberSimIO 等),
-#       需把引擎 include 根加入 ENGINE_EXTRA_INCLUDE 才能完整编译;仅解析(bt_xml_loader)可独立编译。
+const ENGINE_CORE_CMAKE = `# engine-core/ —— FOSim 引擎 modules/extern + core/mal + pugi 的【真实】源码(verbatim,不魔改):
+#   include/ = 所有 header (BT/FSM 节点/任务/loader 定义、MAL API、pugi XML)
+#   src/     = 所有实现 (bt_xml_loader / state_machine_loader / behavior_node_agent / agent /
+#              bt_runtime / state_machine_runtime / register_wrapper / MAL / pugi)
+#
+# 默认作 INTERFACE 目标(仅暴露 header 路径,不编译源文件):
+#   - bt_runtime.cpp / state_machine_runtime.cpp / agent.cpp / behavior_node_agent.cpp 依赖引擎
+#     业务头 (FZSimIO/models/modules/core-logging 等),脱离 FOSim 引擎本体无法编译。
+#   - 而 header 是自洽的接口定义,skeleton 里的 shim (BT::BTXmlLoader / BT::TreeTask) 与之接口对齐,
+#     这样生成工程即使不接 FOSim 也能一键编译并跑通调度。
+#
+# 接入真实引擎:
+#   1. cmake 时加 -DUSE_REAL_ENGINE_LOADER=ON 并指定 -DENGINE_EXTRA_INCLUDE=<FOSim 引擎 include 根>
+#   2. 这将改为 STATIC 构建 bt_xml_loader.cpp / state_machine_loader.cpp / register_wrapper.cpp
+#      等业务无关的实现文件(shim 里的解析退为兜底)
+#   3. 若 ENGINE_EXTRA_INCLUDE 指到完整业务头, 也可以把 bt_runtime.cpp 等业务耦合源加进构建
 cmake_minimum_required(VERSION 3.16)
-set(ENGINE_EXTRA_INCLUDE "" CACHE PATH "FOSim 引擎 include 根(用于解析 bt_runtime 引用的业务头)")
+option(USE_REAL_ENGINE_LOADER "编译 modules/extern 里业务无关的 loader/register_wrapper(需要引擎 include)" OFF)
+set(ENGINE_EXTRA_INCLUDE "" CACHE PATH "FOSim 引擎 include 根(用于解析业务头)")
 
-file(GLOB_RECURSE ENGINE_CORE_SOURCES "\${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp")
-add_library(fosim_engine_core STATIC \${ENGINE_CORE_SOURCES})
-target_include_directories(fosim_engine_core PUBLIC
+add_library(fosim_engine_core INTERFACE)
+target_include_directories(fosim_engine_core INTERFACE
     "\${CMAKE_CURRENT_SOURCE_DIR}/include"
     "\${CMAKE_CURRENT_SOURCE_DIR}/include/FOSim/Engine")
 if(ENGINE_EXTRA_INCLUDE)
-    target_include_directories(fosim_engine_core PUBLIC "\${ENGINE_EXTRA_INCLUDE}")
+    target_include_directories(fosim_engine_core INTERFACE "\${ENGINE_EXTRA_INCLUDE}")
 endif()
-set_target_properties(fosim_engine_core PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+
+if(USE_REAL_ENGINE_LOADER)
+    # 业务无关的实现文件(不依赖 FZSimIO/models/modules);升级为 STATIC 与 skeleton 并存时,
+    # skeleton 应关闭其自带的 BTXmlLoader 声明避免符号冲突。当前 skeleton 已提供等价 API,
+    # 只在你确实想跑真解析器时开启此选项。
+    set(REAL_LOADER_SOURCES
+        "\${CMAKE_CURRENT_SOURCE_DIR}/src/modules/extern/bt_xml_loader.cpp"
+        "\${CMAKE_CURRENT_SOURCE_DIR}/src/modules/extern/state_machine_loader.cpp"
+        "\${CMAKE_CURRENT_SOURCE_DIR}/src/modules/extern/register_wrapper.cpp"
+        "\${CMAKE_CURRENT_SOURCE_DIR}/src/pugi/pugixml.cpp")
+    add_library(fosim_engine_core_loader STATIC \${REAL_LOADER_SOURCES})
+    target_link_libraries(fosim_engine_core_loader PUBLIC fosim_engine_core)
+    set_target_properties(fosim_engine_core_loader PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON)
+endif()
 `;
 
 export async function writeProjectFiles(
@@ -324,14 +429,24 @@ export async function writeScenarioFile(
   return { ok: true, path: filename, viaDownload: true };
 }
 
-/** 选择文件读取(Tauri dialog);浏览器下用 <input type=file>。 */
-export async function readTextFile(): Promise<{ name: string; content: string } | null> {
-  const res = await invokeOpt<{ name: string; content: string }>("open_text_file");
+export interface FileFilter { name: string; extensions: string[] }
+export interface OpenedTextFile { name: string; content: string; path?: string }
+
+/**
+ * 选择文件读取。
+ * Tauri:原生对话框(可传 filters/defaultDir);浏览器:<input type=file>(accept 由 filters 首个决定)。
+ * 返回值多一个 path:桌面端是绝对路径,浏览器沙箱下缺失 —— 前端据此决定要不要写回 workspaceFilePath。
+ */
+export async function readTextFile(
+  filters?: FileFilter[],
+  defaultDir?: string,
+): Promise<OpenedTextFile | null> {
+  const res = await invokeOpt<OpenedTextFile>("open_text_file", { filters, defaultDir });
   if (res.ok) return res.data;
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
-    input.accept = ".xml,.bt,.json,.zip";
+    input.accept = (filters?.[0]?.extensions ?? ["xml", "bt", "json", "zip"]).map((e) => "." + e).join(",");
     input.onchange = () => {
       const file = input.files?.[0];
       if (!file) return resolve(null);
@@ -341,4 +456,61 @@ export async function readTextFile(): Promise<{ name: string; content: string } 
     };
     input.click();
   });
+}
+
+/**
+ * "另存为"对话框 + 写盘。
+ * Tauri:原生 save 对话框,原子写入,返回选中的路径(取消返回 null)。
+ * 浏览器:降级为下载,path 返回 defaultName(仅作展示,非真实路径)。
+ * 调用方拿 path 记入 workspaceFilePath 供下次静默保存。
+ */
+export async function saveTextFile(
+  defaultName: string,
+  content: string,
+  opts: { defaultDir?: string; filters?: FileFilter[] } = {},
+): Promise<{ path: string; viaDownload: boolean } | null> {
+  const res = await invokeOpt<string | null>("save_text_file", {
+    defaultName,
+    defaultDir: opts.defaultDir,
+    filters: opts.filters,
+    content,
+  });
+  if (res.ok) {
+    if (!res.data) return null; // 用户取消
+    return { path: res.data, viaDownload: false };
+  }
+  downloadText(defaultName, content, "application/xml");
+  return { path: defaultName, viaDownload: true };
+}
+
+/**
+ * "选择保存位置"对话框。多路径降级:
+ *   1) Tauri Rust `pick_save_file_path` —— 原生"另存为"选完整绝对路径
+ *   2) Tauri Rust `pick_directory` + 拼 defaultName —— 命令未注册(dev 未 rebuild)/失败时的兜底
+ *   3) 浏览器 `showSaveFilePicker` —— 弹原生"另存为",按 saveFileTag 缓存 FileHandle,
+ *      后续 writeToCachedSaveFile(tag) 直写不再弹框;返回 "browser::文件名" 记号串
+ *   4) 完全无法 —— 返回 null
+ *
+ * saveFileTag 是浏览器路径专用:同 tag 会复用/覆盖同一句柄。默认 "workspace-xml"。
+ */
+export async function pickSaveFilePath(
+  defaultName: string,
+  opts: { defaultDir?: string; filters?: FileFilter[]; saveFileTag?: string } = {},
+): Promise<string | null> {
+  const res = await invokeOpt<string | null>("pick_save_file_path", {
+    defaultName,
+    defaultDir: opts.defaultDir,
+    filters: opts.filters,
+  });
+  if (res.ok) return res.data;
+  if (isTauri()) {
+    const dir = await pickDirectory(opts.defaultDir);
+    if (!dir) return null;
+    return `${dir.replace(/[\\/]+$/, "")}/${defaultName}`;
+  }
+  // 浏览器:用 File System Access API 拿真实文件句柄,缓存起来供"保存 XML"直写。
+  if (browserHasSaveFilePicker()) {
+    return pickSaveHandleAndCache(opts.saveFileTag ?? "workspace-xml", defaultName, opts.filters);
+  }
+  return null;
 }

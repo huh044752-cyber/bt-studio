@@ -79,4 +79,46 @@ describe("导入/导出往返(文档 §9 / §16.2)", () => {
     expect(cond?.compareOp).toBe("ge");
     expect(cond?.compareValue).toBe("2");
   });
+
+  it("老引擎 <Condition> 带子归一为 Sequence(对齐 C++ 新引擎:Condition 必须叶子)", () => {
+    // C++ bt_xml_loader (L525):Condition must be a leaf。vue2 nodeConfig 也把 condition 归入叶子类。
+    // 老 .bt 里的 <Condition><Action/><Action/></Condition> = AND 组合,与 Sequence 语义等价 →
+    // 导入时归一为 Sequence,保证 registry 合法性(Condition 的 min/max=0)。
+    const xml = `<?xml version='1.0' encoding='utf-8'?>
+<Root>
+  <Sequence>
+    <Condition>
+      <Action function="Get_Sensor_Status" />
+      <Action function="ConfigureOnUnit" />
+    </Condition>
+    <Action function="Check_Weaspon_Enable" />
+  </Sequence>
+</Root>`;
+    const res = importer.importRuntimeXml(xml);
+    const seqs = Object.values(res.tree.nodes).filter((n) => n.nodeType === "Sequence");
+    // 外层 Sequence + 归一后的原 Condition = 2 个 Sequence
+    expect(seqs.length).toBe(2);
+    const normalized = seqs.find((n) => n.childOrder.length === 2);
+    expect(normalized).toBeTruthy();
+    const actions = Object.values(res.tree.nodes).filter((n) => n.nodeType === "Action");
+    expect(actions.length).toBe(3);
+  });
+
+  it("叶子 <Condition function=.../> 保持 Condition 类型(不归一)", () => {
+    // 无子的 Condition 是条件谓词叶子,保留 nodeType=Condition。
+    const xml = `<?xml version='1.0' encoding='utf-8'?>
+<Root>
+  <Sequence>
+    <Condition function="Check_Enemy" />
+    <Action function="Fire" />
+  </Sequence>
+</Root>`;
+    const res = importer.importRuntimeXml(xml);
+    const cond = Object.values(res.tree.nodes).find((n) => n.nodeType === "Condition");
+    expect(cond?.functionRef).toBe("Check_Enemy");
+    expect(cond?.childOrder.length).toBe(0);
+    const out = exporter.exportAll({ doc: createDocument(res.tree) });
+    expect(out.ok).toBe(true);
+    expect(out.artifacts!.xml).toContain("<Condition");
+  });
 });

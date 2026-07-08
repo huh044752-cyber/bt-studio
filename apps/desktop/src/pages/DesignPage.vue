@@ -357,7 +357,7 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
 }
 .drawer-resizer.right { right: -3px; }
 .drawer-resizer.left { left: -3px; }
-.drawer-resizer:hover { background: rgba(94, 179, 255, 0.35); }
+.drawer-resizer:hover { background: var(--accent-soft); }
 /* 收起后边缘的展开标签 */
 .edge-tab {
   position: absolute;
@@ -367,16 +367,17 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
   letter-spacing: 2px;
   font-size: 11px;
   padding: 10px 5px;
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  background: var(--panel, rgba(30, 36, 48, 0.9));
-  color: var(--muted);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  color: var(--text-secondary);
   cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease;
 }
-.edge-tab:hover { color: var(--accent); border-color: var(--accent); }
+.edge-tab:hover { color: var(--accent); border-color: var(--accent-border); background: var(--surface-3); }
 .edge-tab.tl { left: 0; }
 .edge-tab.tr { right: 0; }
-.btn.tiny.on { color: var(--accent); border-color: rgba(94, 179, 255, 0.4); }
+.btn.tiny.on { color: var(--accent); border-color: var(--accent-border); background: var(--accent-soft); }
 .left-sec {
   display: flex;
   flex-direction: column;
@@ -409,7 +410,11 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
   font-size: 12.5px;
 }
 .tree-item.active {
-  background: rgba(94, 179, 255, 0.12);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.tree-item:hover:not(.active) {
+  background: var(--surface-3);
 }
 .tname {
   flex: 1;

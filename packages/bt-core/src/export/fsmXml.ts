@@ -53,14 +53,14 @@ function attr(name: string, value: string | number | boolean | undefined): strin
 
 const TRANSITION_TYPES = new Set(["ConditionTransition", "StateTransition", "Transition"]);
 
-/** 目标选择器属性(老版:仅在用户填写时输出 cognition/componentId,默认 BT 引擎按 cognition 自动绑定)。 */
+/**
+ * State / Transition 目标选择器属性:只输出 className(自由类型空间选类的结果)。
+ * componentId 是运行时挂接才写入的 data_id UUID —— 工作空间 / 模板层不输出,由场景挂接闸门在 sdata 侧补齐。
+ */
 function targetAttrs(n: DesignNode): string {
   const t = n.targetSelector;
   if (!t) return "";
-  return (
-    (t.modelClass ? attr("cognition", t.modelClass) : "") +
-    (t.componentId ? attr("componentId", t.componentId) : "")
-  );
+  return t.modelClass ? attr("className", t.modelClass) : "";
 }
 
 /** FSM 版 scope 解析(与 xmlSerializer 一致)。 */

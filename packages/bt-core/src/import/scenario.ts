@@ -15,8 +15,7 @@ export interface ScenarioComponent {
   componentId: string; // data_id
   /**
    * 老版 .sdata 上的组件 type 属性(Cognition / Equipment / Platform ...)。
-   * 用于 UnitTemplate 派生时定位"这只实体的认知类"—— Root 挂接需要这个字段还原 <Root cognition="...">。
-   * 新版 .sdata 无此属性,保持 undefined。
+   * 仅作为 UI 分组标签保留;新版 .sdata 无此属性,保持 undefined。
    */
   componentType?: string;
 }
@@ -97,7 +96,7 @@ export function parseScenarioUnits(sdataXml: string): ScenarioUnit[] {
 
 /**
  * 老版分支:把 BT 名字写进 <Unit><Script>ADD Behaviac "name";</Script></Unit>。
- * - 老引擎解析想定时执行 Script 命令,在 Unit 上挂行为树(按 BT 文件名找 <Root cognition="...">)。
+ * - 老引擎解析想定时执行 Script 命令,在 Unit 上按名字挂 modelDatabase 下的 .bt。
  * - 若该 Unit 已有同名 ADD Behaviac,根据 policy 决定 reject / overwrite。
  *
  * @param sdataXml 整份 .sdata 文本(我们做基于行/正则的局部替换以保留中文 + 注释)
@@ -111,9 +110,39 @@ export function attachOldScenario(
   btName: string,
   policy: AttachPolicy,
 ): AttachOutcome {
-  const cmd = `ADD Behaviac "${btName}";`;
+  return injectAddCommand(sdataXml, unitName, "Behaviac", btName, policy);
+}
+
+/**
+ * 老版分支(FSM 版):把 状态机名写进 <Unit><Script>ADD StateMachine "name";</Script></Unit>。
+ * 与 `attachOldScenario` 双胞胎 —— 老引擎 fosim_script_ast 里 ST_AddStateMachine 与 ST_AddBehaviac
+ * 是平行命令(见 FZFOSimModel/ModelSource/.../fosim_script_ast.h::AddStateMachineExpr)。
+ * loader 端由 FSM::StateMachineLoader 承接,按 fight_status.sm(projectType="状态机")识别为 FSM。
+ *
+ * @param smName 要挂载的状态机名(对应 ModelDatabase/StateMachine/<smName>.sm)
+ */
+export function attachOldScenarioStateMachine(
+  sdataXml: string,
+  unitName: string,
+  smName: string,
+  policy: AttachPolicy,
+): AttachOutcome {
+  return injectAddCommand(sdataXml, unitName, "StateMachine", smName, policy);
+}
+
+/**
+ * ADD <kind> "name"; 命令注入的共享实现:BT 走 kind="Behaviac",FSM 走 kind="StateMachine"。
+ * 定位到目标 Unit 后在其 <Script> 内插入/替换同名命令(policy=reject/overwrite/backup_then_overwrite)。
+ */
+function injectAddCommand(
+  sdataXml: string,
+  unitName: string,
+  kind: "Behaviac" | "StateMachine",
+  name: string,
+  policy: AttachPolicy,
+): AttachOutcome {
+  const cmd = `ADD ${kind} "${name}";`;
   // 锁定到目标 Unit:从 <Unit> ... <Name>X</Name> ... </Unit> 中找包含 <Name>unitName</Name> 的那段
-  // 用一个稳健的 unitRe,允许中间有任意空白与子节点
   const unitRe = new RegExp(
     `(<Unit\\b[^>]*>)([\\s\\S]*?<Name>\\s*${escapeRe(unitName)}\\s*</Name>[\\s\\S]*?)(</Unit>)`,
     "m",
@@ -132,10 +161,10 @@ export function attachOldScenario(
   let conflict = false;
   if (scriptMatch) {
     const body = scriptMatch[1]!;
-    const dupRe = new RegExp(`ADD\\s+Behaviac\\s+"${escapeRe(btName)}"\\s*;`, "i");
+    const dupRe = new RegExp(`ADD\\s+${kind}\\s+"${escapeRe(name)}"\\s*;`, "i");
     const hasDup = dupRe.test(body);
     if (hasDup && policy === "reject") {
-      return { ok: false, conflict: true, message: `Unit ${unitName} 已挂载 ${btName},reject 拒绝` };
+      return { ok: false, conflict: true, message: `Unit ${unitName} 已挂载 ${kind} ${name},reject 拒绝` };
     }
     conflict = hasDup;
     let nextBody: string;
@@ -152,8 +181,8 @@ export function attachOldScenario(
     xml: newXml,
     conflict,
     message: conflict
-      ? `已替换 Unit ${unitName} 的 ADD Behaviac "${btName}"`
-      : `已写入 Unit ${unitName}:ADD Behaviac "${btName}"`,
+      ? `已替换 Unit ${unitName} 的 ADD ${kind} "${name}"`
+      : `已写入 Unit ${unitName}:ADD ${kind} "${name}"`,
   };
 }
 
@@ -199,55 +228,6 @@ export function validateTreeForUnit(
     issues.push({ nodeId: node.nodeId, nodeName: node.name, className: cls, functionRef: node.functionRef, level: "ok", reason: "组件含该函数" });
   }
   return { issues, errorCount: issues.filter((i) => i.level === "error").length };
-}
-
-/**
- * 老版实体挂载端到端校验(§E,与 attachOldScenario 配合)。
- * 检查三边一致:
- *   (1) BT XML 的 <Root cognition="X"> 有 X;
- *   (2) 目标 Unit 的 <ModelData> 里存在 className === X 且 type === "Cognition" 的组件;
- *   (3) 该 BT 的每个 Action/Condition 节点若选了 modelClass Y,则 Unit 必须有 Y 组件,
- *       并且函数目录里 Y.functionRef 必须存在(委托到 validateTreeForUnit)。
- * 老引擎运行时:LoadBehaviorTreeDefFromXML 读 cognition 属性,在 unit 上 GetMountedModels() 里
- * 找 cognition 组件,再用 FindDecisionFunction 下行转换到具体决策类,拿函数指针 tick。
- */
-export interface OldMountValidation {
-  ok: boolean;
-  cognition: string;
-  cognitionMatched: boolean;
-  cognitionReason: string;
-  treeValidation: AttachValidation;
-}
-
-export function validateOldMountAgainstUnit(
-  btXml: string,
-  unit: ScenarioUnit,
-  tree: Parameters<typeof validateTreeForUnit>[0],
-  functions: Parameters<typeof validateTreeForUnit>[2],
-): OldMountValidation {
-  // 从 BT XML 抽 <Root cognition="X">;老 .bt 允许 cognition 缺失(回退默认 = 树名),此时不校验(cognitionMatched=true 视作已匹配)。
-  const m = /<Root\b[^>]*\bcognition="([^"]*)"/.exec(btXml);
-  const cognition = m ? m[1]! : "";
-  let cognitionMatched = true;
-  let cognitionReason = "BT 未声明 cognition,老引擎将按默认(树名 = 认知类)自动绑定";
-  if (cognition) {
-    const hit = unit.components.find((c) => c.className === cognition);
-    if (!hit) {
-      cognitionMatched = false;
-      cognitionReason = `Unit ${unit.name} 无 className="${cognition}" 组件 —— LoadBehaviorTreeDefFromXML 时 GetMountedModels() 找不到认知,导致 tick 空跑`;
-    } else {
-      cognitionMatched = true;
-      cognitionReason = `Unit ${unit.name} 含 ${cognition} 组件(uuid=${hit.componentId || "?"})`;
-    }
-  }
-  const treeValidation = validateTreeForUnit(tree, unit, functions);
-  return {
-    ok: cognitionMatched && treeValidation.errorCount === 0,
-    cognition,
-    cognitionMatched,
-    cognitionReason,
-    treeValidation,
-  };
 }
 
 export type AttachPolicy = "reject" | "overwrite" | "backup_then_overwrite";

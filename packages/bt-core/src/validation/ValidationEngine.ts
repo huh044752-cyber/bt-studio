@@ -134,14 +134,12 @@ export class ValidationEngine {
       }
     }
 
-    // 函数绑定(Action/Condition/ConditionTransform/Wait)
+    // 函数绑定(Action/Condition/ConditionTransform/Wait/State/ConditionTransition):
+    // Condition 已收敛为叶子节点(对齐 C++ 新引擎 bt_xml_loader:Condition 必须叶子;vue2 nodeConfig 也归入 condition 叶子类)。
     if (FUNCTION_KINDS.has(node.nodeType)) {
-      const bound =
-        (node.functionRef && node.functionRef.trim()) ||
-        (node.script && node.script.trim()) ||
-        (node.scriptRef && node.scriptRef.trim());
+      const bound = node.functionRef && node.functionRef.trim();
       if (!bound) {
-        push("error", `${def.displayName} 未绑定函数(function/script/scriptRef 均为空)`, {
+        push("error", `${def.displayName} 未绑定函数`, {
           ...at("functionRef"),
           source: "binding",
         });

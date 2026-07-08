@@ -7,7 +7,7 @@
 
 ```xml
 <?xml version='1.0' encoding='utf-8'?>
-<Root id="1" projectType="行为树" name="..." btTemplateId="..." modelId="..." cognition="...">
+<Root id="1" projectType="行为树" name="..." btTemplateId="..." modelId="...">
   <Blackboards> ... </Blackboards>
   <ReferencedBehaviorTrees />
   <!-- 恰好一个行为根节点 -->
@@ -17,6 +17,7 @@
 - `projectType` **必须**为 `行为树`(loader 强校验)。
 - Root 必须且只能有 1 个行为节点子节点。
 - 节点 `id` 为唯一非零正整数(导出时按 BFS 从 1 重新编号)。
+- Root **没有** `rootClass` / `cognition` 属性。类归属由每个叶子的 `className` 表达,挂接时由校验闸门保证一致。
 
 ## 节点元素名(注意与 kind 不同名)
 
@@ -33,7 +34,7 @@
 
 ## 节点属性
 
-- Action/Condition/ConditionTransform:`function` 或 `script` / `scriptRef`;组件选择器 `mdataName`(=modelName)、`className`、`typeName`、`componentId`、`componentName`。
+- Action/Condition/ConditionTransform:`function` 或 `script` / `scriptRef`;类归属仅 `className`(自由类型空间选类的结果)。`componentId` 是运行时挂接产物,由场景挂接流程写到 sdata BehaviorTreeInstance,不在工作空间/模板层。
 - Parallel:`successThreshold` / `failureThreshold`。
 - End:`status="SUCCESS|Failure"`、`externalTree`。
 - 输入捕获:`inputCapture="onEnter"`。
@@ -118,7 +119,7 @@
 
 - 函数目录 = Agent 的 `<Method>`;`<Param IsRef="true">` = 输出参数。
 - 变量 = Agent 的 `<Member>`;`Static="true"` = 全局黑板候选,否则本地黑板候选。
-- 根类绑定:行为树的 `rootClass` 决定其 Action/Condition 函数只来自该类的方法。
+- 类归属:行为树的**每个叶子**可独立选类(自由类型空间),Action/Condition 的 `className` 字段决定该节点走哪个类的方法。Root/Behavior 层不再绑类。
 
 ## workspace.xml(单一工程持久化)— `packages/bt-core/src/export/workspaceXml.ts`
 
@@ -132,7 +133,7 @@
     </Blackboard>
   </GlobalBlackboards>
   <Behaviors>
-    <Behavior name="主树" kind="behavior_tree" rootClass="FZAirFighter"><Root .../></Behavior>
+    <Behavior name="主树" kind="behavior_tree"><Root .../></Behavior>
     <Behavior name="巡逻机" kind="state_machine"><Root projectType="状态机"><FSMNodes/></Root></Behavior>
   </Behaviors>
 </Workspace>

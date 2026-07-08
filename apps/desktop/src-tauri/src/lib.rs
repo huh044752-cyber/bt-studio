@@ -23,6 +23,9 @@ fn write_runtime_xml(path: String, content: String) -> Result<String, String> {
 struct TextFile {
     name: String,
     content: String,
+    /// 绝对路径(read_text_path 已知路径填回,open_text_file 由对话框拿到)。前端记入 workspaceFilePath。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
 }
 
 #[tauri::command]
@@ -33,7 +36,7 @@ fn read_text_path(path: String) -> Result<TextFile, String> {
         .and_then(|n| n.to_str())
         .unwrap_or("file")
         .to_string();
-    Ok(TextFile { name, content })
+    Ok(TextFile { name, content, path: Some(path) })
 }
 
 #[tauri::command]
@@ -97,6 +100,117 @@ fn pick_directory(default_path: Option<String>) -> Option<String> {
     .join()
     .ok()
     .flatten()
+}
+
+#[derive(serde::Deserialize)]
+struct FileFilter {
+    name: String,
+    extensions: Vec<String>,
+}
+
+/// 原生打开对话框 → 读文件文本。取消/失败返回 None(前端会降级到浏览器 <input type=file>)。
+#[tauri::command]
+fn open_text_file(
+    filters: Option<Vec<FileFilter>>,
+    default_dir: Option<String>,
+) -> Option<TextFile> {
+    let picked: Option<String> = std::thread::spawn(move || {
+        let mut dialog = rfd::FileDialog::new();
+        if let Some(d) = default_dir {
+            if !d.is_empty() && Path::new(&d).is_dir() {
+                dialog = dialog.set_directory(&d);
+            }
+        }
+        if let Some(fs) = filters {
+            for f in fs {
+                let exts: Vec<&str> = f.extensions.iter().map(|s| s.as_str()).collect();
+                dialog = dialog.add_filter(&f.name, &exts);
+            }
+        }
+        dialog.pick_file().map(|p| p.to_string_lossy().to_string())
+    })
+    .join()
+    .ok()
+    .flatten();
+    let path = picked?;
+    let content = fs_ops::read_text(Path::new(&path)).ok()?;
+    let name = Path::new(&path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("file")
+        .to_string();
+    Some(TextFile { name, content, path: Some(path) })
+}
+
+/// 原生"另存为"对话框,只返回选中的路径,不写文件(用户在"工作空间配置"里
+/// 挑一个未来保存的位置,配置阶段不该产生空文件)。取消返回 None。
+#[tauri::command]
+fn pick_save_file_path(
+    default_name: Option<String>,
+    default_dir: Option<String>,
+    filters: Option<Vec<FileFilter>>,
+) -> Option<String> {
+    std::thread::spawn(move || {
+        let mut dialog = rfd::FileDialog::new();
+        if let Some(d) = default_dir {
+            if !d.is_empty() && Path::new(&d).is_dir() {
+                dialog = dialog.set_directory(&d);
+            }
+        }
+        if let Some(n) = default_name {
+            if !n.is_empty() {
+                dialog = dialog.set_file_name(&n);
+            }
+        }
+        if let Some(fs) = filters {
+            for f in fs {
+                let exts: Vec<&str> = f.extensions.iter().map(|s| s.as_str()).collect();
+                dialog = dialog.add_filter(&f.name, &exts);
+            }
+        }
+        dialog.save_file().map(|p| p.to_string_lossy().to_string())
+    })
+    .join()
+    .ok()
+    .flatten()
+}
+
+/// 原生"另存为"对话框 → 原子写入选中文件,返回最终路径(取消返回 None)。
+#[tauri::command]
+fn save_text_file(
+    default_name: Option<String>,
+    default_dir: Option<String>,
+    filters: Option<Vec<FileFilter>>,
+    content: String,
+) -> Result<Option<String>, String> {
+    let picked: Option<String> = std::thread::spawn(move || {
+        let mut dialog = rfd::FileDialog::new();
+        if let Some(d) = default_dir {
+            if !d.is_empty() && Path::new(&d).is_dir() {
+                dialog = dialog.set_directory(&d);
+            }
+        }
+        if let Some(n) = default_name {
+            if !n.is_empty() {
+                dialog = dialog.set_file_name(&n);
+            }
+        }
+        if let Some(fs) = filters {
+            for f in fs {
+                let exts: Vec<&str> = f.extensions.iter().map(|s| s.as_str()).collect();
+                dialog = dialog.add_filter(&f.name, &exts);
+            }
+        }
+        dialog.save_file().map(|p| p.to_string_lossy().to_string())
+    })
+    .join()
+    .ok()
+    .flatten();
+    let Some(path) = picked else {
+        return Ok(None);
+    };
+    fs_ops::atomic_write(Path::new(&path), &content).map_err(|e| e.to_string())?;
+    Ok(Some(path))
 }
 
 #[derive(serde::Serialize)]
@@ -191,6 +305,9 @@ pub fn run() {
             scan_scenarios,
             write_scenario,
             pick_directory,
+            open_text_file,
+            save_text_file,
+            pick_save_file_path,
             vendor_engine_runtime,
             write_project_files,
         ])

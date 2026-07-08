@@ -78,9 +78,8 @@ export interface OutputBinding {
   variableId: string;
 }
 
-/** bt_node_def.h::ModelSelector */
+/** bt_node_def.h::ModelSelector — 编辑器只用 className 表达类归属;componentId 由挂接流程写入,不在此建模 */
 export interface ModelSelector {
-  cognition: string;
   modelName: string;
   modelClass: string;
   modelType: string;
@@ -147,7 +146,6 @@ export interface BehaviorTreeDef {
   projectType: string;
   behaviorTreeTemplateId: string;
   modelId: string;
-  cognition: string;
   /** bt_tree_def.h::BlackboardStore — 这里以 BlackboardDef 列表表达 */
   blackboards: BlackboardDef[];
   root: BTNodeDef | null;
@@ -165,7 +163,6 @@ export const FOSIM_PROJECT_TYPE = "行为树";
 
 export function emptyModelSelector(): ModelSelector {
   return {
-    cognition: "",
     modelName: "",
     modelClass: "",
     modelType: "",
