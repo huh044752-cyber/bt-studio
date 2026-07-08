@@ -2,8 +2,6 @@
 
 面向 FOSim 的独立行为树设计平台:可视化建树、MAL 感知绑定、校验、导出 **FOSim 兼容 `*.bt.xml`**、导入恢复、独立调试、场景挂接与回归。围绕行为树工具本身,**不**包含状态机 / 脚本桥接 / 通用业务平台。
 
-> 设计依据:`F:\FOSim\behaviac\独立行为树插件与可视化编辑器总设计文档.md`
-
 ## 技术栈
 
 - 桌面端:**Tauri 2 + Vue 3 + TypeScript**
@@ -100,14 +98,14 @@ pnpm --filter @btstudio/desktop dev            # http://localhost:5180
 
 ```bash
 node packages/bt-core/scripts/genKdd.mjs \
-     F:/0411/ccc/kdd_workspace.workspace.xml \
-     F:/0411/ccc/GeneratedCpp/空地打击
+     <你的工作空间>.workspace.xml \
+     <输出目录>
 ```
 
 生成结构:
 
 ```
-GeneratedCpp/空地打击/
+<输出目录>/
 ├─ CMakeLists.txt                    # 顶层,链接 runtime + types,含 ctest
 ├─ runtime/                          # 自包含 BT/FSM 运行时(loader + task + observer)
 │  ├─ include/fosim/{bt_runtime,fsm_runtime,cyber_types}.h
@@ -126,7 +124,7 @@ GeneratedCpp/空地打击/
 ### 4) 编译
 
 ```bash
-cd F:/0411/ccc/GeneratedCpp/空地打击
+cd <输出目录>
 cmake -S . -B build
 cmake --build build --config Release
 ```
