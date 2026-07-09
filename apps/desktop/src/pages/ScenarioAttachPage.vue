@@ -190,6 +190,14 @@ function initTreeFoldOpen(treeId: string, _errorCount: number): boolean {
 function onTreeFoldToggle(treeId: string, ev: Event) {
   sa.foldedTrees[treeId] = !(ev.target as HTMLDetailsElement).open;
 }
+
+// 组装台 Tab 状态:默认落在 "已挂载"(主工作面)。切换实体不重置 —— 用户习惯的 tab 会保留。
+type AsmTab = "assembled" | "components" | "validation";
+const activeTab = ref<AsmTab>("assembled");
+// 单棵树对应的校验结果(卡片里内嵌迷你摘要用)
+function validationForTree(treeId: string) {
+  return perTreeValidation.value.find((v) => v.treeId === treeId);
+}
 </script>
 
 <template>
@@ -254,76 +262,117 @@ function onTreeFoldToggle(treeId: string, ev: Event) {
 
       <Splitter />
 
-      <!-- 列 2:组装台 -->
+      <!-- 列 2:组装台(重设计:实体头 + Tab 分段 + 单区大内容) -->
       <div class="panel col assembly">
         <div v-if="!selUnit" class="muted-2 empty pad">③ 组装台 · 从左栏选实体开始组装</div>
 
-        <details v-else class="fold" open>
-          <summary class="fold-t">
-            <span class="chev">▾</span>
+        <template v-else>
+          <!-- 实体头:一直可见,展示实体身份 + 全局校验状态 -->
+          <div class="asm-head">
             <span class="uc-ico">▧</span>
-            <span class="tt">③ {{ selUnit.name }}</span>
-            <span class="muted-3 nowrap">#{{ selUnit.objectHandle }} · {{ selUnit.typeOfUnit }}</span>
+            <div class="asm-head-main">
+              <div class="asm-head-row1">
+                <strong class="asm-title">③ {{ selUnit.name }}</strong>
+                <span class="muted-3 mono nowrap">#{{ selUnit.objectHandle }}</span>
+                <span class="muted-2 nowrap">· {{ selUnit.typeOfUnit }}</span>
+              </div>
+              <div class="asm-head-row2 muted-3">
+                {{ selUnit.components.length }} 组件 · 已挂 {{ assemblyMap[selUnit.objectHandle]?.length ?? 0 }} 棵
+              </div>
+            </div>
             <span class="spacer" />
-            <span class="tag" :class="assemblyMap[selUnit.objectHandle]?.length ? 'info' : ''">
-              已挂载 {{ assemblyMap[selUnit.objectHandle]?.length ?? 0 }}
+            <span v-if="perTreeValidation.length" class="tag" :class="totalErrors ? 'error' : 'success'">
+              {{ totalErrors ? totalErrors + " 错误" : "校验通过" }}
             </span>
-          </summary>
-          <div class="fold-b unit-card">
-            <!-- 组件 -->
-            <details class="fold" open>
-            <summary class="fold-t">
-              <span class="chev">▾</span>
-              <span class="tt">组件 (Components)</span>
-              <span class="badge">{{ selUnit.components.length }}</span>
-              <span class="muted-3 nowrap">className → componentId</span>
-            </summary>
-            <div class="fold-b">
-              <div v-if="selUnit.components.length === 0" class="muted-2 empty">该实体无组件</div>
-              <div v-else class="comp-scroll">
-                <table class="tbl comp-tbl">
+          </div>
+
+          <!-- Tab 分段 -->
+          <div class="asm-tabs">
+            <button class="asm-tab" :class="{active: activeTab === 'assembled'}" @click="activeTab = 'assembled'">
+              已挂载 <span class="tab-cnt">{{ selectedTrees.length }}</span>
+            </button>
+            <button class="asm-tab" :class="{active: activeTab === 'components'}" @click="activeTab = 'components'">
+              组件 <span class="tab-cnt">{{ selUnit.components.length }}</span>
+            </button>
+            <button class="asm-tab" :class="{active: activeTab === 'validation'}" @click="activeTab = 'validation'">
+              校验 <span class="tab-cnt" :class="totalErrors ? 'err' : (perTreeValidation.length ? 'ok' : '')">
+                {{ totalErrors ? totalErrors + ' 错' : (perTreeValidation.length ? '✓' : '—') }}
+              </span>
+            </button>
+          </div>
+
+          <!-- Tab 内容:占满剩余高度,内部滚动 -->
+          <div class="asm-body">
+            <!-- 已挂载:卡片网格,每张卡内嵌该树的迷你校验摘要 -->
+            <div v-if="activeTab === 'assembled'" class="asm-content">
+              <div v-if="selectedTrees.length === 0" class="muted-2 empty pad-lg">
+                <div class="empty-ico">▧</div>
+                <div>从右栏勾选行为树/状态机挂到该实体</div>
+              </div>
+              <div v-else class="assem-grid">
+                <div v-for="t in selectedTrees" :key="t.treeId" class="assem-card">
+                  <div class="assem-card-head">
+                    <span class="tag" :class="(t.projectKind ?? 'behavior_tree') === 'state_machine' ? 'warning' : 'info'">
+                      {{ (t.projectKind ?? 'behavior_tree') === 'state_machine' ? 'FSM' : 'BT' }}
+                    </span>
+                    <strong class="assem-card-name ellipsis">{{ t.displayName }}</strong>
+                    <span class="muted-3 mono nowrap">{{ Object.keys(t.nodes).length }} 节点</span>
+                    <span class="spacer" />
+                    <button class="btn tiny danger ic" @click="toggleTreeOnUnit(selUnit, t.treeId)" title="从此实体移除">✕</button>
+                  </div>
+                  <div v-if="validationForTree(t.treeId)" class="assem-card-body">
+                    <template v-if="validationForTree(t.treeId)!.errorCount === 0">
+                      <div class="v-ok">
+                        <span class="tag success">✓</span>
+                        <span>校验通过 · {{ validationForTree(t.treeId)!.issues.length }} 项检查</span>
+                        <span class="spacer" />
+                        <button class="btn tiny link" @click="activeTab = 'validation'">查看详情 ›</button>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <div class="v-err-head">
+                        <span class="tag error">{{ validationForTree(t.treeId)!.errorCount }} 错误</span>
+                        <span class="muted-2">共 {{ validationForTree(t.treeId)!.issues.length }} 项检查</span>
+                        <span class="spacer" />
+                        <button class="btn tiny link" @click="activeTab = 'validation'">查看全部 ›</button>
+                      </div>
+                      <div class="v-err-list">
+                        <div v-for="(iss, i) in (validationForTree(t.treeId)!.issues as any[]).filter(x => x.level !== 'ok').slice(0, 3)"
+                             :key="i" class="vrow error">
+                          <span class="tag error">✕</span>
+                          <span class="vnode ellipsis">{{ iss.nodeName }}</span>
+                          <span class="vreason ellipsis" :title="iss.reason">{{ iss.reason }}</span>
+                        </div>
+                        <div v-if="(validationForTree(t.treeId)!.issues as any[]).filter(x => x.level !== 'ok').length > 3"
+                             class="muted-3 more">
+                          … 还有 {{ (validationForTree(t.treeId)!.issues as any[]).filter(x => x.level !== 'ok').length - 3 }} 条
+                        </div>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 组件:整表 -->
+            <div v-else-if="activeTab === 'components'" class="asm-content">
+              <div v-if="selUnit.components.length === 0" class="muted-2 empty pad-lg">该实体无组件</div>
+              <table v-else class="tbl comp-tbl">
+                <thead class="comp-thead">
+                  <tr><th>类名 (className)</th><th>组件 ID (componentId)</th></tr>
+                </thead>
+                <tbody>
                   <tr v-for="(comp, i) in selUnit.components" :key="i">
                     <td class="mono">{{ comp.className }}</td>
                     <td class="muted-2 mono cid" :title="comp.componentId">{{ comp.componentId }}</td>
                   </tr>
-                </table>
-              </div>
+                </tbody>
+              </table>
             </div>
-          </details>
 
-          <!-- 已挂载 -->
-          <details class="fold" open>
-            <summary class="fold-t">
-              <span class="chev">▾</span>
-              <span class="tt">已挂载 (Assembly)</span>
-              <span class="badge">{{ selectedTrees.length }}</span>
-            </summary>
-            <div class="fold-b">
-              <div v-if="selectedTrees.length === 0" class="muted-2 empty">右栏勾选后显示</div>
-              <div v-else class="assem-list">
-                <div v-for="t in selectedTrees" :key="t.treeId" class="assem-item">
-                  <span class="tag" :class="(t.projectKind ?? 'behavior_tree') === 'state_machine' ? 'warning' : 'info'">
-                    {{ (t.projectKind ?? 'behavior_tree') === 'state_machine' ? 'FSM' : 'BT' }}
-                  </span>
-                  <span class="ellipsis">{{ t.displayName }}</span>
-                  <span class="spacer" />
-                  <button class="btn tiny danger" @click="toggleTreeOnUnit(selUnit, t.treeId)" title="移除">✕</button>
-                </div>
-              </div>
-            </div>
-          </details>
-
-          <!-- 校验 -->
-          <details class="fold" open>
-            <summary class="fold-t">
-              <span class="chev">▾</span>
-              <span class="tt">批量校验</span>
-              <span class="tag" :class="totalErrors ? 'error' : 'success'" v-if="perTreeValidation.length">
-                {{ totalErrors ? totalErrors + " 错误" : "全部通过" }}
-              </span>
-            </summary>
-            <div class="fold-b">
-              <div v-if="perTreeValidation.length === 0" class="muted-2 empty">选实体 + 勾选树后校验</div>
+            <!-- 校验:按树分组的详细问题 -->
+            <div v-else-if="activeTab === 'validation'" class="asm-content">
+              <div v-if="perTreeValidation.length === 0" class="muted-2 empty pad-lg">选实体 + 勾选树后自动校验</div>
               <div v-else class="vlist">
                 <details v-for="pv in perTreeValidation" :key="pv.treeId" class="fold sub"
                   :open="initTreeFoldOpen(pv.treeId, pv.errorCount)"
@@ -345,9 +394,8 @@ function onTreeFoldToggle(treeId: string, ev: Event) {
                 </details>
               </div>
             </div>
-          </details>
           </div>
-        </details>
+        </template>
       </div>
 
       <Splitter />
@@ -401,12 +449,86 @@ function onTreeFoldToggle(treeId: string, ev: Event) {
 .grid { display: flex; gap: 4px; flex: 1; min-height: 0; min-width: 0; }
 .grid > .panel { flex: 1 1 0; min-width: 0; overflow: auto; }
 .grid > .panel.c1 { flex: 0 0 260px; }
-/* 中列(组装台):列本身不滚,让内部 .fold-b.unit-card 承担独立滚动 —— 避免"整列一起滚"看不到深处的批量校验。 */
-.grid > .panel.assembly { flex: 1.4 1 0; overflow: hidden; display: flex; flex-direction: column; }
-.panel.assembly > .empty.pad { flex: 0 0 auto; }
-.panel.assembly > .fold { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-.panel.assembly > .fold > .fold-t { flex: 0 0 auto; }
-.panel.assembly > .fold > .fold-b.unit-card { flex: 1; min-height: 0; overflow-y: auto; }
+/* 中列(组装台):列本身不滚,由 head/tabs/body 三段拆分;body 内独立滚动。 */
+.grid > .panel.assembly { flex: 1.4 1 0; overflow: hidden; display: flex; flex-direction: column; padding: 0; }
+.panel.assembly > .empty.pad { flex: 0 0 auto; padding: 20px; }
+
+/* 组装台:实体头 —— 固定高度,不参与滚动 */
+.asm-head {
+  display: flex; align-items: center; gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-2);
+  flex: 0 0 auto;
+}
+.asm-head .uc-ico { font-size: 18px; color: var(--accent); flex: 0 0 auto; }
+.asm-head-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.asm-head-row1 { display: flex; align-items: baseline; gap: 8px; }
+.asm-title { font-size: 14px; color: var(--text-primary); font-weight: 600; }
+.asm-head-row2 { font-size: 11px; }
+
+/* Tab 分段 —— 也是固定 */
+.asm-tabs {
+  display: flex; padding: 0 10px; gap: 2px;
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+  flex: 0 0 auto;
+}
+.asm-tab {
+  padding: 9px 14px; font-size: 12px;
+  background: transparent; border: none; color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: color 0.12s, background 0.12s, border-color 0.12s;
+}
+.asm-tab:hover { color: var(--text-primary); background: var(--surface-3); }
+.asm-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.tab-cnt {
+  padding: 1px 7px; border-radius: 9px; background: var(--surface-3);
+  font-size: 10.5px; font-weight: 600; color: var(--text-secondary);
+  min-width: 20px; text-align: center;
+}
+.tab-cnt.err { background: var(--err-soft); color: var(--err, #e05656); }
+.tab-cnt.ok { background: rgba(76,175,80,0.14); color: #6dc36d; }
+.asm-tab.active .tab-cnt { background: var(--accent-soft); color: var(--accent); }
+
+/* Tab 主体:占满剩余,内部 asm-content 独立滚动 */
+.asm-body { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.asm-content { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px; }
+.pad-lg { padding: 40px 20px; text-align: center; }
+.empty-ico { font-size: 32px; color: var(--text-tertiary); margin-bottom: 10px; opacity: 0.5; }
+
+/* 已挂载:卡片网格 */
+.assem-grid { display: flex; flex-direction: column; gap: 10px; }
+.assem-card {
+  border: 1px solid var(--border-subtle); border-radius: 8px;
+  background: var(--surface-2); overflow: hidden;
+  transition: border-color 0.15s;
+}
+.assem-card:hover { border-color: var(--accent-border); }
+.assem-card-head {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px 8px 12px;
+  background: var(--surface-3);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.assem-card-name { color: var(--text-primary); font-size: 12.5px; min-width: 0; }
+.assem-card-body { padding: 8px 12px 10px; font-size: 12px; }
+.v-ok, .v-err-head { display: flex; align-items: center; gap: 8px; }
+.v-err-head { margin-bottom: 6px; }
+.v-err-list { display: flex; flex-direction: column; gap: 3px; padding-left: 4px; }
+.more { font-size: 11px; padding: 2px 4px; }
+.btn.link { background: transparent; color: var(--accent); border: none; padding: 2px 4px; font-size: 11px; cursor: pointer; }
+.btn.link:hover { text-decoration: underline; }
+
+/* 组件表 表头:sticky,长列表滚动时表头不跑丢 */
+.comp-thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--surface-2); color: var(--text-secondary);
+  font-weight: 600; font-size: 11px; text-align: left;
+  padding: 6px 8px; border-bottom: 1px solid var(--border-subtle);
+}
 .panel { padding: 10px; }
 .col { display: flex; flex-direction: column; gap: 8px; }
 
@@ -461,12 +583,22 @@ function onTreeFoldToggle(treeId: string, ev: Event) {
 .u-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* --- 组装台内容布局 --- */
-.unit-card { display: flex; flex-direction: column; gap: 8px; padding: 0; }
+/* unit-card 是三段(组件/已挂载/批量校验)的父容器,自身不滚,让内部每段独立滚。 */
+.unit-card { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px; overflow: hidden; min-height: 0; }
 .uc-ico { font-size: 14px; color: var(--accent); flex: 0 0 auto; }
 
-/* 组件表滚动容器:限制其最大高度,避免"组件多"时压掉后面的模块。
- * 未来若还想更紧凑,可把 max-height 调低;想全展开,加 :hover 或双击展开逻辑。 */
-.comp-scroll { max-height: 240px; overflow: auto; border-radius: 4px; }
+/* 三段(fold)在 unit-card 内平分剩余高度:
+ * flex:1 1 0 让每段拿到 1/3 剩余高度;min-height:0 是让 flex 子容器允许收缩到 overflow 生效的关键。
+ * 折叠(未 open)时不吃高度。 */
+.unit-card > .fold { display: flex; flex-direction: column; min-height: 0; }
+.unit-card > .fold[open] { flex: 1 1 0; }
+.unit-card > .fold:not([open]) { flex: 0 0 auto; }
+.unit-card > .fold > .fold-t { flex: 0 0 auto; }
+/* 每段的 body 独立滚动:overflow:auto + min-height:0 允许收缩,内容超过就出滚动条。 */
+.unit-card > .fold[open] > .fold-b { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+
+/* 组件表滚动容器:去掉 max-height —— 现在外层 fold-b 已经承担滚动,组件表铺满即可。 */
+.comp-scroll { border-radius: 4px; }
 
 /* 组件表 —— UUID 完整展示,不再切成 "1…";列宽固定 40%/60% 保证 className 左对齐、UUID 右侧可换行。 */
 .tbl { width: 100%; border-collapse: collapse; table-layout: fixed; }

@@ -1253,6 +1253,7 @@ function fsmRuntimeHeader(): string {
 #include <memory>
 #include <vector>
 #include <map>
+#include <functional>
 
 namespace FSM {
 
@@ -1289,17 +1290,66 @@ public:
     StateMachineDefPtr LoadFromContent(const std::string& content, std::string* err);
 };
 
+// ---------- 观察者(与 BT 的 BTTraceSink 对齐) ----------
+// event.kind 语义:
+//   Enter      - 首次进入某状态(current_ 从 0 变到非 0,或 Reset 后再启动)
+//   StateTick  - 处于某状态并 Tick 一帧(未发生迁移)
+//   Transition - 触发一条迁移,fromStateId → toStateId
+//   Exit       - 到达终结态 / Disable / Reset,离开当前状态
+//   End        - 到达 isEndState 且返回 Success
+class StateMachineTask;
+struct FsmTraceEvent {
+    enum class Kind { Enter, StateTick, Transition, Exit, End };
+    Kind kind = Kind::StateTick;
+    const StateMachineTask* task = nullptr;
+    std::string smName;             // StateMachineDef::name
+    int frame = 0;
+    int fromStateId = 0;
+    std::string fromStateName;
+    int toStateId = 0;              // Transition/Enter 时是目标 state id
+    std::string toStateName;
+    std::string transitionFn;       // 触发的迁移函数名(仅 Transition)
+    FSMStatus status = FSMStatus::Invalid;
+};
+using FsmTraceSink = std::function<void(const FsmTraceEvent&)>;
+
 // 调度:维护当前状态;每 Tick 执行当前状态函数地址,再按迁移条件切换(真实引擎按 Operator/Opl/Opr 求值)。
+// 生命周期接口(对齐"启用/禁用/重置/销毁/清除"直觉):
+//   Enable()    - 启用,允许 Tick(默认已启用)
+//   Disable()   - 禁用,Tick 立即返回 Invalid 且不推进状态(会发一次 Exit 事件)
+//   Enabled()   - 查询启用状态
+//   Reset()     - 状态回到初始 rootId,frame 归零(会发一次 Exit + 新的 Enter)
+//   Clear()     - 清除状态(current=0)但保留 def;后续 Tick 会重新 Enter 到 rootId
+//   Destroy()   - 释放 def_(不可逆);之后 Tick 返回 Invalid
+//   CurrentStateName()  - 当前状态名(空 = 未初始化或已 Destroy)
+//   SetTraceSink(sink)  - 挂观察者;传空关闭
 class StateMachineTask {
 public:
     explicit StateMachineTask(StateMachineDefPtr def);
     FSMStatus Tick();               // 外部驱动一帧
     int CurrentStateId() const { return current_; }
+    std::string CurrentStateName() const;
     int StateCount() const { return def_ ? (int)def_->states.size() : 0; }
+    // 生命周期
+    void Enable() { enabled_ = true; }
+    void Disable();
+    bool Enabled() const { return enabled_; }
+    void Reset();
+    void Clear();
+    void Destroy();
+    bool Alive() const { return static_cast<bool>(def_); }
+    // 观察者
+    void SetTraceSink(FsmTraceSink sink) { trace_ = std::move(sink); }
+    // 供 sink 读取上下文
+    const std::string& Name() const;
 private:
+    void Emit(FsmTraceEvent::Kind k, int fromId, int toId, const std::string& fn, FSMStatus st);
     StateMachineDefPtr def_;
     int current_ = 0;
     int frame_ = 0;   // 帧计数,观察者输出用
+    bool enabled_ = true;
+    bool entered_ = false;   // 是否已发过首次 Enter(用于 Reset/Clear 后重新发)
+    FsmTraceSink trace_;
 };
 std::shared_ptr<StateMachineTask> CreateStateMachineTask(StateMachineDefPtr def);
 
@@ -1427,15 +1477,80 @@ static bool FsmTraceEnabled() {
     return !(s == "off" || s == "0" || s == "none");
 }
 
+// 生命周期与观察者辅助
+static const std::string kEmptyStr;
+const std::string& StateMachineTask::Name() const { return def_ ? def_->name : kEmptyStr; }
+std::string StateMachineTask::CurrentStateName() const {
+    if (!def_) return "";
+    auto it = def_->states.find(current_);
+    return it == def_->states.end() ? std::string() : it->second.name;
+}
+void StateMachineTask::Emit(FsmTraceEvent::Kind k, int fromId, int toId,
+                            const std::string& fn, FSMStatus st) {
+    if (!trace_) return;
+    FsmTraceEvent ev;
+    ev.kind = k;
+    ev.task = this;
+    ev.smName = def_ ? def_->name : std::string();
+    ev.frame = frame_;
+    ev.fromStateId = fromId;
+    ev.toStateId = toId;
+    ev.transitionFn = fn;
+    ev.status = st;
+    if (def_) {
+        auto itf = def_->states.find(fromId);
+        if (itf != def_->states.end()) ev.fromStateName = itf->second.name;
+        auto itt = def_->states.find(toId);
+        if (itt != def_->states.end()) ev.toStateName = itt->second.name;
+    }
+    trace_(ev);
+}
+void StateMachineTask::Disable() {
+    if (!enabled_) return;
+    enabled_ = false;
+    if (entered_) Emit(FsmTraceEvent::Kind::Exit, current_, 0, "Disable", FSMStatus::Invalid);
+}
+void StateMachineTask::Reset() {
+    if (entered_) Emit(FsmTraceEvent::Kind::Exit, current_, 0, "Reset", FSMStatus::Invalid);
+    frame_ = 0;
+    entered_ = false;
+    if (def_) current_ = def_->rootId;
+}
+void StateMachineTask::Clear() {
+    if (entered_) Emit(FsmTraceEvent::Kind::Exit, current_, 0, "Clear", FSMStatus::Invalid);
+    current_ = 0;
+    entered_ = false;
+}
+void StateMachineTask::Destroy() {
+    if (entered_) Emit(FsmTraceEvent::Kind::Exit, current_, 0, "Destroy", FSMStatus::Invalid);
+    def_.reset();
+    current_ = 0;
+    entered_ = false;
+    enabled_ = false;
+}
+
 // 自包含骨架的一步推进:执行当前状态;若为结束态→Success;否则取第一条有目标的迁移切换并 Running。
 // 真实引擎在此按 (model->*function_ptr_) 求条件、按 Operator/Opl/Opr 比较决定迁移。
 FSMStatus StateMachineTask::Tick() {
-    if (!def_ || def_->states.find(current_) == def_->states.end()) return FSMStatus::Invalid;
+    if (!enabled_) return FSMStatus::Invalid;
+    if (!def_ || def_->states.find(current_) == def_->states.end()) {
+        // Clear/Destroy 后 current_=0 但 def 尚在 → 恢复到 rootId,重新 Enter
+        if (def_ && current_ == 0) {
+            current_ = def_->rootId;
+        } else {
+            return FSMStatus::Invalid;
+        }
+    }
+    if (!entered_) {
+        Emit(FsmTraceEvent::Kind::Enter, 0, current_, {}, FSMStatus::Running);
+        entered_ = true;
+    }
     const StateDef& st = def_->states[current_];
     ++frame_;
     static const bool trace = FsmTraceEnabled();
     if (st.isEndState) {
         if (trace) std::cout << "[FSM_TRACE] state=" << st.name << "[" << st.id << "] frame=" << frame_ << " -> End (Success)\\n";
+        Emit(FsmTraceEvent::Kind::End, current_, 0, {}, FSMStatus::Success);
         return FSMStatus::Success;
     }
     for (const auto& tr : st.transitions) {
@@ -1447,11 +1562,14 @@ FSMStatus StateMachineTask::Tick() {
                           << " transition=" << (tr.functionName.empty() ? "-" : tr.functionName)
                           << " -> " << nxt.name << "[" << nxt.id << "]\\n";
             }
+            int fromId = current_;
             current_ = tr.targetStateId;
+            Emit(FsmTraceEvent::Kind::Transition, fromId, current_, tr.functionName, FSMStatus::Running);
             return FSMStatus::Running;
         }
     }
     if (trace) std::cout << "[FSM_TRACE] state=" << st.name << "[" << st.id << "] frame=" << frame_ << " -> stall (Running)\\n";
+    Emit(FsmTraceEvent::Kind::StateTick, current_, current_, {}, FSMStatus::Running);
     return FSMStatus::Running;
 }
 
@@ -1864,34 +1982,59 @@ inline DriveResult DriveParallel(
 }
 
 function traceRecorderHeader(): string {
-  return `// 由 BT Studio 生成 —— 内存版 trace sink,记录"哪个树哪一帧访问了哪个节点"。
-// 与运行时的 BTTraceSink 挂钩:Attach() 会把 SetTraceSink 换成 recorder 的 sink;
+  return `// 由 BT Studio 生成 —— 内存版 trace sink,记录"哪棵树/哪台状态机 哪一帧访问了哪个节点/状态"。
+// 与运行时的 BTTraceSink / FsmTraceSink 挂钩:
+//   Attach(bts)     - 把每棵 BT 的 SetTraceSink 换成 recorder 的 sink
+//   AttachFsm(fsms) - 把每台 FSM 的 SetTraceSink 换成 recorder 的 sink(FSM 事件通过 FsmTraceEvent → TraceRecord::isFsm 分辨)
 // 每次 Tick 时,recorder 用 SetFrame() 里的 frame 打时间戳。
 #pragma once
 #include "fosim/bt_runtime.h"
+#include "fosim/fsm_runtime.h"
 #include <memory>
 #include <string>
 #include <vector>
 
 struct TraceRecord {
-    std::string tree;
-    std::string node;      // BTNodeDef::name
-    int nodeId = 0;        // BTNodeDef::id
-    int frame  = -1;
+    // 通用字段
+    bool isFsm = false;               // false = BT 事件 / true = FSM 事件
+    std::string tree;                 // BT: BTNodeDef::tree->name / FSM: StateMachineDef::name
+    int frame = -1;
+    // BT 专属
+    std::string node;                 // BT: BTNodeDef::name / FSM 里用 toStateName 复用
+    int nodeId = 0;                   // BT: BTNodeDef::id / FSM: toStateId
     BT::BTStatus statusAfter = BT::BTStatus::Invalid;
     bool entered = false;
     bool exited  = false;
+    // FSM 专属
+    FSM::FsmTraceEvent::Kind fsmKind = FSM::FsmTraceEvent::Kind::StateTick;
+    int fsmFromStateId = 0;
+    int fsmToStateId = 0;
+    std::string fsmFromStateName;
+    std::string fsmToStateName;
+    std::string fsmTransitionFn;
+    FSM::FSMStatus fsmStatus = FSM::FSMStatus::Invalid;
 };
 
 class TraceRecorder {
 public:
     // 挂上所有 BT 的 sink;后续任何 tick 都会写入 records_。多个 recorder 会互相覆盖(单一 sink 槽)。
     void Attach(const std::vector<std::shared_ptr<BT::TreeTask>>& bts);
+    // 挂上所有 FSM 的 sink;FSM 事件走 FSM::FsmTraceSink,写入的记录里 isFsm=true。
+    void AttachFsm(const std::vector<std::shared_ptr<FSM::StateMachineTask>>& fsms);
     void SetFrame(int f) { frame_ = f; }
 
+    // BT 查询(仅在 !isFsm 的记录里找)
     bool WasVisited(const std::string& tree, const std::string& node) const;
     bool WasVisitedAtFrame(const std::string& tree, const std::string& node, int f) const;
     int  VisitCount(const std::string& tree, const std::string& node) const;
+
+    // FSM 查询
+    bool FsmEnteredState(const std::string& sm, const std::string& stateName) const;    // 是否进入过某状态
+    bool FsmTransitionTaken(const std::string& sm, const std::string& fromState, const std::string& toState) const;
+    int  FsmTransitionCount(const std::string& sm, const std::string& fromState, const std::string& toState) const;
+    int  FsmStateVisits(const std::string& sm, const std::string& stateName) const;      // Enter + StateTick + Transition 落到此 state 的总次数
+    int  FsmEndReached(const std::string& sm) const;                                     // End 事件出现次数
+
     const std::vector<TraceRecord>& All() const { return records_; }
     void Clear() { records_.clear(); }
 
@@ -1910,6 +2053,7 @@ void TraceRecorder::Attach(const std::vector<std::shared_ptr<BT::TreeTask>>& bts
     // 单一全局 sink 槽:装最后一个 recorder;多 recorder 场景请自己合并(通常测试里 1 个就够)。
     BT::BTTraceSink sink = [this](const BT::BTTraceEvent& ev) {
         TraceRecord r;
+        r.isFsm = false;
         if (ev.tree && !ev.tree->name.empty()) r.tree = ev.tree->name;
         if (ev.node) { r.node = ev.node->name; r.nodeId = ev.node->id; }
         r.frame       = frame_;
@@ -1921,17 +2065,71 @@ void TraceRecorder::Attach(const std::vector<std::shared_ptr<BT::TreeTask>>& bts
     for (auto& t : bts) if (t) t->SetTraceSink(sink);
 }
 
+void TraceRecorder::AttachFsm(const std::vector<std::shared_ptr<FSM::StateMachineTask>>& fsms) {
+    FSM::FsmTraceSink sink = [this](const FSM::FsmTraceEvent& ev) {
+        TraceRecord r;
+        r.isFsm = true;
+        r.tree = ev.smName;                 // 复用 tree 字段存 sm 名
+        r.frame = frame_;
+        r.fsmKind = ev.kind;
+        r.fsmFromStateId = ev.fromStateId;
+        r.fsmToStateId = ev.toStateId;
+        r.fsmFromStateName = ev.fromStateName;
+        r.fsmToStateName = ev.toStateName;
+        r.fsmTransitionFn = ev.transitionFn;
+        r.fsmStatus = ev.status;
+        r.nodeId = ev.toStateId;            // 通用查询兼容
+        r.node = ev.toStateName;            // 通用查询兼容:node 存目标 state 名
+        records_.push_back(std::move(r));
+    };
+    for (auto& t : fsms) if (t) t->SetTraceSink(sink);
+}
+
 bool TraceRecorder::WasVisited(const std::string& tree, const std::string& node) const {
-    for (const auto& r : records_) if (r.tree == tree && r.node == node) return true;
+    for (const auto& r : records_) if (!r.isFsm && r.tree == tree && r.node == node) return true;
     return false;
 }
 bool TraceRecorder::WasVisitedAtFrame(const std::string& tree, const std::string& node, int f) const {
-    for (const auto& r : records_) if (r.tree == tree && r.node == node && r.frame == f) return true;
+    for (const auto& r : records_) if (!r.isFsm && r.tree == tree && r.node == node && r.frame == f) return true;
     return false;
 }
 int TraceRecorder::VisitCount(const std::string& tree, const std::string& node) const {
     int n = 0;
-    for (const auto& r : records_) if (r.tree == tree && r.node == node) ++n;
+    for (const auto& r : records_) if (!r.isFsm && r.tree == tree && r.node == node) ++n;
+    return n;
+}
+
+bool TraceRecorder::FsmEnteredState(const std::string& sm, const std::string& stateName) const {
+    for (const auto& r : records_)
+        if (r.isFsm && r.tree == sm && r.fsmToStateName == stateName
+            && (r.fsmKind == FSM::FsmTraceEvent::Kind::Enter
+                || r.fsmKind == FSM::FsmTraceEvent::Kind::Transition
+                || r.fsmKind == FSM::FsmTraceEvent::Kind::StateTick)) return true;
+    return false;
+}
+bool TraceRecorder::FsmTransitionTaken(const std::string& sm, const std::string& fromState, const std::string& toState) const {
+    for (const auto& r : records_)
+        if (r.isFsm && r.tree == sm && r.fsmKind == FSM::FsmTraceEvent::Kind::Transition
+            && r.fsmFromStateName == fromState && r.fsmToStateName == toState) return true;
+    return false;
+}
+int TraceRecorder::FsmTransitionCount(const std::string& sm, const std::string& fromState, const std::string& toState) const {
+    int n = 0;
+    for (const auto& r : records_)
+        if (r.isFsm && r.tree == sm && r.fsmKind == FSM::FsmTraceEvent::Kind::Transition
+            && r.fsmFromStateName == fromState && r.fsmToStateName == toState) ++n;
+    return n;
+}
+int TraceRecorder::FsmStateVisits(const std::string& sm, const std::string& stateName) const {
+    int n = 0;
+    for (const auto& r : records_)
+        if (r.isFsm && r.tree == sm && r.fsmToStateName == stateName) ++n;
+    return n;
+}
+int TraceRecorder::FsmEndReached(const std::string& sm) const {
+    int n = 0;
+    for (const auto& r : records_)
+        if (r.isFsm && r.tree == sm && r.fsmKind == FSM::FsmTraceEvent::Kind::End) ++n;
     return n;
 }
 `;
@@ -2079,10 +2277,13 @@ ${listFsm || "        // (无 FSM)"}
         std::cout << "[FSM] loaded " << resolved << " (" << t->StateCount() << " states)\\n";
     }
 
-    // 挂上"轨迹记录器":每次 leaf tick 会写入一条 TraceRecord(tree/node/frame/status)。
-    // 在 tick_check_after 里可用 rec.WasVisitedAtFrame("main_tree", "Fire", 12) 断言"某帧命中某节点"。
+    // 挂上"轨迹记录器":每次 BT leaf tick / FSM 状态事件 都会写入一条 TraceRecord(tree/node/frame/status)。
+    // BT 查询:rec.WasVisitedAtFrame("main_tree", "Fire", 12)
+    // FSM 查询:rec.FsmTransitionTaken("fight_status", "Fly_Status", "Fight_Status") /
+    //          rec.FsmStateVisits("fight_status", "Fight_Status") / rec.FsmEnteredState(...)
     TraceRecorder rec;
     rec.Attach(btTasks);
+    rec.AttachFsm(fsmTasks);
 
 ${agentGrabBlock}
     // 关键:单帧循环并行 tick 所有 BT + 所有 FSM(和 main.cpp 一致的并行调度语义)。

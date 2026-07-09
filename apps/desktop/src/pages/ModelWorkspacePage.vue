@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
+import { ref, computed, nextTick } from "vue";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useConsoleStore } from "@/stores/console";
 import ActionButton from "@/components/common/ActionButton.vue";
@@ -32,9 +32,22 @@ function confirmCreate() {
   createOpen.value = false;
   ws.bump();
 }
-function addMethod(className: string) {
+/** DOM 就绪后:找到 el、平滑滚入视野居中,并聚焦第一个 input(便于立即改名)。 */
+async function scrollFocusById(id: string) {
+  await nextTick();
+  const el = document.getElementById(id) as HTMLElement | null;
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  const input = el.querySelector("input.input") as HTMLInputElement | null;
+  if (input) { input.focus(); input.select(); }
+  // 短暂高亮:视觉指引新行所在位置
+  el.classList.add("just-added");
+  window.setTimeout(() => el.classList.remove("just-added"), 1500);
+}
+function addMethod(className: string, classId: string) {
+  const functionId = newFunctionId();
   ws.functionCatalog.functions.push({
-    functionId: newFunctionId(),
+    functionId,
     name: "NewMethod",
     displayName: "新方法",
     category: "action",
@@ -45,10 +58,14 @@ function addMethod(className: string) {
     params: [],
   });
   ws.bump();
+  // 若这个类当前处于折叠,先展开,再滚到新方法行
+  if (collapsed.value.has(classId)) toggleCollapse(classId);
+  scrollFocusById(`method-${functionId}`);
 }
 function addMember(className: string, classId: string) {
+  const memberId = prefixedId("member");
   ws.members.push({
-    memberId: prefixedId("member"),
+    memberId,
     ownerClassId: classId,
     memberName: "newMember",
     valueType: "CyberIntegerType",
@@ -58,6 +75,8 @@ function addMember(className: string, classId: string) {
     displayType: "int",
   });
   ws.bump();
+  if (collapsed.value.has(classId)) toggleCollapse(classId);
+  scrollFocusById(`member-${memberId}`);
 }
 function addEnumItem(enumId: string) {
   const e = ws.enums.find((x) => x.enumId === enumId);
@@ -194,9 +213,7 @@ const agents = computed(() => {
   }));
 });
 
-// 中心可缩放 + 折叠类卡片
-const zoom = ref(1);
-function zoomBy(d: number) { zoom.value = Math.min(1.6, Math.max(0.6, +(zoom.value + d).toFixed(2))); }
+// 折叠类卡片
 const collapsed = ref<Set<string>>(new Set());
 function toggleCollapse(id: string) {
   if (collapsed.value.has(id)) collapsed.value.delete(id);
@@ -241,15 +258,9 @@ function collapseAll(v: boolean) {
           <span class="spacer" />
           <button class="btn tiny" title="全部折叠" @click="collapseAll(true)">全部折叠</button>
           <button class="btn tiny" title="全部展开" @click="collapseAll(false)">全部展开</button>
-          <span class="zoomgrp">
-            <button class="btn tiny" title="缩小" @click="zoomBy(-0.1)">－</button>
-            <span class="zlbl">{{ Math.round(zoom * 100) }}%</span>
-            <button class="btn tiny" title="放大" @click="zoomBy(0.1)">＋</button>
-            <button class="btn tiny" title="重置" @click="zoom = 1">1:1</button>
-          </span>
         </div>
         <div v-if="agents.length === 0 && ws.enums.length === 0" class="muted-2 empty">新建类/枚举,或导入 meta.xml。</div>
-        <div class="zoomwrap" :style="{ fontSize: zoom + 'em' }">
+        <div class="typewrap">
         <!-- 类(Agent)卡片 -->
         <section v-for="a in agents" :key="a.cls.classId" class="card cls" :class="{ collapsed: collapsed.has(a.cls.classId) }">
           <header class="card-head">
@@ -262,7 +273,7 @@ function collapseAll(v: boolean) {
             <!-- baseClass 曾展示为"模型 : CyberCognitionImpl",但生成代码统一继承 CyberDecisionAgentBase,该标签会误导用户。已移除。 -->
             <span class="spacer" />
             <span class="counts"><b>{{ a.methods.length }}</b> 方法 · <b>{{ a.members.length }}</b> 成员</span>
-            <button class="btn tiny" @click="addMethod(a.cls.className)">＋方法</button>
+            <button class="btn tiny" @click="addMethod(a.cls.className, a.cls.classId)">＋方法</button>
             <button class="btn tiny" @click="addMember(a.cls.className, a.cls.classId)">＋成员</button>
             <button class="btn tiny danger ic" title="删除类(连同方法/成员)" @click="removeClass(a.cls.classId, a.cls.className)">🗑</button>
           </header>
@@ -270,7 +281,7 @@ function collapseAll(v: boolean) {
             <!-- 方法 -->
             <div class="sub-head"><span class="dot m" />方法(决策/条件函数)<span class="muted-2 sh-hint">返回值统一 CyberDFMPFRC</span></div>
             <div v-if="a.methods.length === 0" class="muted-2 sub-empty">暂无方法,点「＋方法」。</div>
-            <div v-for="m in a.methods" :key="m.functionId" class="method">
+            <div v-for="m in a.methods" :key="m.functionId" class="method" :id="`method-${m.functionId}`">
               <div class="m-top">
                 <span class="cat-badge" :class="m.category">{{ CAT_LABEL[m.category] ?? m.category }}</span>
                 <input class="input tiny nm" v-model="m.name" placeholder="方法名 (英文)" />
@@ -304,7 +315,7 @@ function collapseAll(v: boolean) {
             <!-- 成员 -->
             <div class="sub-head"><span class="dot v" />成员(变量声明 · Cyber 类型)</div>
             <div v-if="a.members.length === 0" class="muted-2 sub-empty">暂无成员,点「＋成员」。</div>
-            <div v-for="m in a.members" :key="m.memberId" class="member-row">
+            <div v-for="m in a.members" :key="m.memberId" class="member-row" :id="`member-${m.memberId}`">
               <input class="input tiny nm" v-model="m.memberName" placeholder="成员名" />
               <select class="select tiny" style="width:130px" v-model="m.valueType">
                 <option v-for="t in CYBER_TYPES" :key="t" :value="t">{{ t }}</option>
@@ -377,8 +388,13 @@ function collapseAll(v: boolean) {
 .hint-banner { padding: 8px 12px; font-size: 12px; line-height: 1.6; color: var(--muted); }
 .hint-banner code { background: rgba(122,156,193,0.14); padding: 0 4px; border-radius: 4px; }
 .create-bar { gap: 6px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
-.zoomgrp { display: inline-flex; align-items: center; gap: 4px; }
-.zlbl { font-size: 11px; color: var(--muted-2); min-width: 36px; text-align: center; }
+
+/* 新增方法/成员行:短暂高亮,配合 scrollIntoView 指引用户找到刚加的行。 */
+.just-added { animation: flash-added 1.4s ease-out; }
+@keyframes flash-added {
+  0%   { background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent-border) inset; }
+  100% { background: transparent; box-shadow: none; }
+}
 .caret { cursor: pointer; width: 14px; display: inline-block; color: var(--muted); user-select: none; }
 /* .input.tiny/.select.tiny 高度/字号统一由 theme.css 提供(30px/12px)。 */
 .input.tiny.inl { width: 130px; display: inline-block; }
