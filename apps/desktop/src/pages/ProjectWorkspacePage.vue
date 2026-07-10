@@ -4,6 +4,7 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import { useConsoleStore } from "@/stores/console";
 import ActionButton from "@/components/common/ActionButton.vue";
 import ModalDialog from "@/components/common/ModalDialog.vue";
+import PageHelpButton from "@/components/common/PageHelpButton.vue";
 import ExportSelectModal from "@/components/workspace/ExportSelectModal.vue";
 import { seedWorkspace } from "@/stores/seed";
 import {
@@ -34,7 +35,6 @@ const exportTarget = ref<ExportTarget>("cpp-project");
 type CfgForm = { name: string; modelRoot: string; exportCodeDir: string; workspaceFilePath: string; cppNamespace: string; language: "cpp" | "cs" };
 const newOpen = ref(false);
 const cfgOpen = ref(false);
-const helpOpen = ref(false);
 const newCfg = ref<CfgForm>({ name: "workspace", modelRoot: "", exportCodeDir: "", workspaceFilePath: "", cppNamespace: "btproj", language: "cpp" });
 const cfg = ref<CfgForm>({ name: "", modelRoot: "", exportCodeDir: "", workspaceFilePath: "", cppNamespace: "btproj", language: "cpp" });
 
@@ -431,7 +431,6 @@ const stats = computed(() => {
         <span class="dot" />
         <strong>工作空间</strong>
         <span class="ws-name" :title="ws.workspaceName">{{ ws.workspaceName }}</span>
-        <span class="env-chip env-tauri" title="Tauri 桌面端:所有选择/保存走原生对话框,写入绝对路径">桌面端</span>
       </div>
       <span class="spacer" />
       <ActionButton label="新建" :primary="true" confirm="将清空当前工作空间,确认?" @run="openNew" />
@@ -439,7 +438,42 @@ const stats = computed(() => {
       <ActionButton label="保存 XML…" @run="() => startExport('workspace-xml')" />
       <ActionButton label="工作空间配置…" @run="openCfg" />
       <ActionButton label="生成 C++ 工程…" :primary="true" @run="() => startExport('cpp-project')" />
-      <ActionButton label="❓ 帮助" @run="helpOpen = true" />
+      <PageHelpButton title="工作空间 · 使用帮助" :width="720">
+        <section class="help-sec">
+          <h3>① 工作流总览</h3>
+          <ol>
+            <li><strong>新建 / 打开</strong> 工作空间 —— 命名 + 语言 + 命名空间</li>
+            <li><strong>⇩ 输入</strong>:配置模型目录 (FZFOSimModel),自动扫 <code>.cmp</code> 抽取类/方法到"类型空间"</li>
+            <li><strong>设计</strong>:在"设计"页拖节点组行为树/状态机;叶子节点绑类 + 函数(来自类型空间)</li>
+            <li><strong>场景挂接</strong>:选想定 + 选实体 + 勾要挂的树 → 批量校验 → 写回 <code>.sdata</code> + 各自 <code>.bt/.sm</code></li>
+            <li><strong>⇧ 输出</strong>:「保存 XML」写 <code>*.workspace.xml</code>;「生成 C++ 工程」写 Agent 类骨架 + BT/FSM XML + CMake</li>
+          </ol>
+        </section>
+        <section class="help-sec">
+          <h3>② 生成的 C++ 工程结构</h3>
+<pre class="help-tree">工程根/
+├─ CMakeLists.txt         顶层:含 tick_check + ctest + whole-archive
+├─ runtime/               fosim_bt_runtime 库:BT/FSM 解析+调度+MAL
+├─ types/                 &lt;ns&gt;_types 库:Agent 类 .h/.cpp(含 FOSIM_REGISTER_AGENT 宏)
+├─ app/main.cpp           入口:仅调 CyberAgentRegistry::instance().RegisterAll()
+├─ tests/tick_check.cpp   自动化:遍历 behaviors/ 跑 Tick 断言最终状态(ctest)
+├─ behaviors/             行为树/状态机 XML
+└─ engine-core/           FOSim modules/extern + core/mal + pugi 真源码</pre>
+          <p><strong>宏静态注册</strong> — 每个 Agent 类的 <code>.cpp</code> 底部展开一次 <code>FOSIM_REGISTER_AGENT(ClassName);</code>,全局 static 对象在 main 之前构造,自动把工厂塞进 <code>CyberAgentRegistry</code>。</p>
+        </section>
+        <section class="help-sec">
+          <h3>③ 编译 + 自动化测试</h3>
+<pre class="help-tree">cmake -S . -B build
+cmake --build build --config Release
+ctest --test-dir build -C Release --output-on-failure</pre>
+          <p><code>tick_check</code> 会加载 <code>behaviors/*.bt.xml/*.fsm.xml</code>,Tick 到终止或 200 帧,断言 BT 必须终止,FSM 允许 Running 自旋。</p>
+        </section>
+        <div class="help-note">
+          「新建工作空间」会<strong>清空当前所有类型 / 树 / 黑板</strong>,操作前先保存。<br>
+          模型目录改动后会<strong>自动重扫</strong>;旧类型可到「模型类型抽取」页手动清理。<br>
+          场景挂接的<strong>完整校验</strong>是硬闸门:任一节点的类/函数在实体 components 里查不到就无法写回。
+        </div>
+      </PageHelpButton>
     </div>
 
     <!-- 选项卡 -->
@@ -844,80 +878,6 @@ const stats = computed(() => {
       </div>
     </ModalDialog>
 
-    <!-- 帮助文档 -->
-    <ModalDialog :open="helpOpen" title="BT Studio · 使用帮助" ok-label="知道了" @ok="helpOpen = false" @cancel="helpOpen = false">
-      <div class="help-doc">
-        <section class="help-sec">
-          <h3>① 工作流总览</h3>
-          <ol class="help-ol">
-            <li><strong>新建 / 打开</strong> 工作空间 —— 命名 + 语言 + 命名空间。</li>
-            <li><strong>⇩ 输入</strong>:配置模型目录(FZFOSimModel),自动扫 <code>.cmp</code> 抽取类/方法到"类型空间"。</li>
-            <li><strong>设计</strong>:在"设计"页拖节点组行为树 / 状态机;叶子节点绑定类 + 函数(来自类型空间)。</li>
-            <li><strong>场景挂接</strong>:选想定 + 选实体 + 勾要挂的树 → 批量校验 → 写回 <code>.sdata</code> + 各自 <code>.bt/.sm</code>。</li>
-            <li><strong>⇧ 输出</strong>:「保存 XML」写 <code>*.workspace.xml</code>;「生成 C++ 工程」写 Agent 类骨架 + BT/FSM XML + CMake。</li>
-          </ol>
-        </section>
-
-        <section class="help-sec">
-          <h3>② 三种运行环境</h3>
-          <ul class="help-ul">
-            <li><span class="chip env-tauri">桌面端</span> Tauri 打包运行,所有选择/保存走原生对话框,写绝对路径。<strong>本项目 Tauri-only,浏览器预览已阻断。</strong></li>
-          </ul>
-          <p class="help-p">顶栏右侧的运行环境 chip 会实时展示当前处于哪种模式,鼠标悬停查看细节。</p>
-        </section>
-
-        <section class="help-sec">
-          <h3>③ 生成的 C++ 工程结构</h3>
-          <pre class="help-tree">工程根/
-├─ CMakeLists.txt         顶层:含 tick_check + ctest + whole-archive
-├─ runtime/               fosim_bt_runtime 库:BT/FSM 解析+调度+MAL(自包含骨架)
-├─ types/                 &lt;ns&gt;_types 库:Agent 类 .h/.cpp(含 FOSIM_REGISTER_AGENT 宏)
-├─ app/main.cpp           入口:仅调 CyberAgentRegistry::instance().RegisterAll()
-├─ tests/tick_check.cpp   自动化:遍历 behaviors/ 跑 Tick 断言最终状态(ctest)
-├─ behaviors/             行为树/状态机 XML
-└─ engine-core/           FOSim modules/extern + core/mal + pugi 真源码(INTERFACE 参考)</pre>
-          <p class="help-p">
-            <strong>宏静态注册</strong> —— 每个 Agent 类的 <code>.cpp</code> 底部展开一次
-            <code>FOSIM_REGISTER_AGENT(ClassName);</code>,全局 static 对象在 main 之前构造,
-            自动把工厂塞进 <code>CyberAgentRegistry</code>。main 里只留一行
-            <code>CyberAgentRegistry::instance().RegisterAll()</code> —— 不再需要手写
-            <code>MyAgent m; m.RegisterFunctions();</code>。
-          </p>
-        </section>
-
-        <section class="help-sec">
-          <h3>④ 编译 + 自动化测试</h3>
-          <pre class="help-tree"># 桌面/命令行:
-cmake -S . -B build
-cmake --build build --config Release
-ctest --test-dir build -C Release --output-on-failure   # 自动跑 tick_check</pre>
-          <p class="help-p">
-            <code>tick_check</code> 会加载 <code>behaviors/*.bt.xml/*.fsm.xml</code>,
-            Tick 到终止或 200 帧,断言 BT 必须终止(否则算逻辑错),FSM 允许 Running 自旋。
-          </p>
-        </section>
-
-        <section class="help-sec warn">
-          <h3>⑤ 注意事项</h3>
-          <ul class="help-ul">
-            <li>「新建工作空间」会<strong>清空当前所有类型 / 树 / 黑板</strong>,操作前先保存。</li>
-            <li>模型目录改动后会<strong>自动重扫</strong>;旧类型不会被自动删,可到「模型类型抽取」页手动清理。</li>
-            <li>「保存 XML」路径为空时,首次会弹另存为并<strong>记回配置</strong>,之后就直写覆盖不再打扰。</li>
-            <li>场景挂接的<strong>完整校验</strong>是硬闸门:任一节点的类/函数在实体的 components 里查不到就无法写回。</li>
-            <li>真引擎 <code>engine-core/</code> 默认作 INTERFACE(仅头文件参考);
-              打开 <code>cmake -DUSE_REAL_ENGINE_LOADER=ON -DENGINE_EXTRA_INCLUDE=&lt;FOSim/include&gt;</code>
-              才编译业务无关的 loader。</li>
-            <li>切换到其他页面再回来,场景挂接的选中状态<strong>会保留</strong>(pinia store);
-              但工作空间未保存的编辑随浏览器刷新丢失,记得及时保存。</li>
-          </ul>
-        </section>
-
-        <section class="help-sec">
-          <h3>⑥ 反馈与支持</h3>
-          <p class="help-p">遇到问题请截图 + 描述复现步骤,发到项目维护群,附一段浏览器控制台/终端输出更佳。</p>
-        </section>
-      </div>
-    </ModalDialog>
 
     <!-- 导出选择对话框:勾选要包含到本次导出的 BT/FSM -->
     <ExportSelectModal
@@ -949,12 +909,6 @@ ctest --test-dir build -C Release --output-on-failure   # 自动跑 tick_check</
   max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   border-left: 1px solid var(--line-soft); padding-left: 8px; margin-left: 2px;
 }
-.env-chip {
-  font-size: 10.5px; padding: 2px 8px; border-radius: 10px;
-  border: 1px solid transparent; cursor: help; user-select: none;
-  letter-spacing: 0.02em;
-}
-.env-tauri { color: var(--ok, #47d6a4); background: rgba(71,214,164,0.1); border-color: rgba(71,214,164,0.3); }
 .spacer { flex: 1; }
 
 /* 选项卡 */
@@ -1272,28 +1226,4 @@ ctest --test-dir build -C Release --output-on-failure   # 自动跑 tick_check</
   margin-top: 4px;
 }
 .ok { color: var(--ok); } .err { color: var(--err); }
-
-/* 帮助文档:分区,支持滚动;标题带序号点缀,代码/树形块用等宽字 */
-.help-doc { max-height: 62vh; overflow-y: auto; padding-right: 4px; font-size: 12.5px; line-height: 1.6; }
-.help-sec { padding: 8px 12px 10px; border-radius: 8px; margin-bottom: 8px; background: rgba(255,255,255,0.02); border: 1px solid var(--line-soft); }
-.help-sec.warn { background: rgba(245,182,92,0.05); border-color: rgba(245,182,92,0.25); }
-.help-sec h3 { margin: 0 0 6px; font-size: 13px; font-weight: 600; color: var(--text); letter-spacing: 0.02em; }
-.help-sec.warn h3 { color: var(--warn, #f5b65c); }
-.help-ol, .help-ul { margin: 4px 0; padding-left: 20px; }
-.help-ol li, .help-ul li { margin: 3px 0; color: var(--muted); }
-.help-ol li strong, .help-ul li strong { color: var(--text); }
-.help-p { margin: 6px 0; color: var(--muted); }
-.help-tree {
-  margin: 6px 0; padding: 8px 10px;
-  background: rgba(0,0,0,0.24); border: 1px solid var(--line-soft); border-radius: 6px;
-  font-family: var(--mono, monospace); font-size: 11px; line-height: 1.5;
-  white-space: pre; overflow-x: auto; color: var(--text);
-}
-.help-doc code {
-  font-family: var(--mono, monospace); font-size: 11.5px;
-  padding: 1px 5px; border-radius: 3px;
-  background: rgba(94,179,255,0.08); color: var(--accent, #5eb3ff);
-}
-.help-doc .chip { margin-right: 4px; }
-.help-doc .chip.env-tauri { color: var(--ok, #47d6a4); background: rgba(71,214,164,0.12); border: 1px solid rgba(71,214,164,0.3); }
 </style>

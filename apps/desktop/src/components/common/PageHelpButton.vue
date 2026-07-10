@@ -89,5 +89,18 @@ const open = ref(false);
   border-left: 3px solid var(--warn, #f5b65c);
   border-radius: 6px;
   font-size: 12px; color: var(--text-secondary, var(--muted));
+  line-height: 1.7;
 }
+.page-help-body :deep(pre.help-tree) {
+  margin: 6px 0; padding: 10px 12px;
+  background: rgba(0,0,0,0.24);
+  border: 1px solid var(--border-subtle, var(--line-soft));
+  border-radius: 6px;
+  font-family: var(--mono, ui-monospace, "SF Mono", Consolas, monospace);
+  font-size: 11.5px; line-height: 1.55;
+  color: var(--text-primary, var(--fg));
+  white-space: pre; overflow-x: auto;
+}
+.page-help-body :deep(ol > li > strong),
+.page-help-body :deep(ul > li > strong) { color: var(--text-primary, var(--fg)); }
 </style>
