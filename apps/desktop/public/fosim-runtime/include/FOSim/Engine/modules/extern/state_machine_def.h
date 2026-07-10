@@ -14,8 +14,6 @@ namespace BT
     {
         int id = 0;
         std::string functionName;
-        std::string conditionScript;
-        std::string scriptRef;
         std::string behaviorTreeName;
         std::string behaviorTreeTemplateId;
         std::string behaviorTreeInstanceId;
@@ -33,8 +31,6 @@ namespace BT
     {
         int id = 0;
         std::string functionName;
-        std::string functionScript;
-        std::string scriptRef;
         std::string behaviorTreeName;
         std::string behaviorTreeTemplateId;
         std::string behaviorTreeInstanceId;

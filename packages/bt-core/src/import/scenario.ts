@@ -31,6 +31,48 @@ function arr<T>(v: T | T[] | undefined): T[] {
   return v === undefined ? [] : Array.isArray(v) ? v : [v];
 }
 
+/** 单个实体上"已挂载"的树名清单(旧 .sdata Script 里的 ADD 命令)。 */
+export interface UnitBindingSnapshot {
+  unitName: string;
+  bt: string[];   // ADD Behaviac "X" 的所有 X
+  fsm: string[];  // ADD StateMachine "Y" 的所有 Y
+}
+
+/**
+ * 解析 .sdata,把每个 Unit 现有的 `ADD Behaviac "X"` / `ADD StateMachine "Y"` 命令抽出来。
+ * 用来做"覆盖前 diff":UI 层比对 baseline 与用户当前勾选,渲染增删标记(git-style)。
+ * 不修改 XML,只读。
+ */
+export function parseExistingBindings(sdataXml: string): UnitBindingSnapshot[] {
+  const out: UnitBindingSnapshot[] = [];
+  const unitRe = /<Unit\b[^>]*>([\s\S]*?)<\/Unit>/g;
+  const nameRe = /<Name>\s*([^<]+?)\s*<\/Name>/;
+  const scriptRe = /<Script>([\s\S]*?)<\/Script>/g;
+  const btCmdRe = /ADD\s+Behaviac\s+"([^"]+)"\s*;/gi;
+  const fsmCmdRe = /ADD\s+StateMachine\s+"([^"]+)"\s*;/gi;
+  let m: RegExpExecArray | null;
+  while ((m = unitRe.exec(sdataXml)) !== null) {
+    const inner = m[1] ?? "";
+    const nm = nameRe.exec(inner);
+    if (!nm) continue;
+    const unitName = nm[1] ?? "";
+    const bt = new Set<string>();
+    const fsm = new Set<string>();
+    scriptRe.lastIndex = 0;
+    let sm: RegExpExecArray | null;
+    while ((sm = scriptRe.exec(inner)) !== null) {
+      const body = sm[1] ?? "";
+      btCmdRe.lastIndex = 0;
+      let bm: RegExpExecArray | null;
+      while ((bm = btCmdRe.exec(body)) !== null) bt.add(bm[1]!);
+      fsmCmdRe.lastIndex = 0;
+      while ((bm = fsmCmdRe.exec(body)) !== null) fsm.add(bm[1]!);
+    }
+    out.push({ unitName, bt: [...bt], fsm: [...fsm] });
+  }
+  return out;
+}
+
 /** 解析 .sdata 的 Units(含每实体的组件 className+data_id)。 */
 export function parseScenarioUnits(sdataXml: string): ScenarioUnit[] {
   const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: "@_", isArray: () => false });

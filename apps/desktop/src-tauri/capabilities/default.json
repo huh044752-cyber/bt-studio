@@ -1,0 +1,9 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "BT Studio 默认 capability。app 自身 crate 里的 #[tauri::command] 通过 invoke_handler! 注册,前端 invoke() 直接可调,不需要在此声明。此文件只放行 Tauri 核心 API。",
+  "windows": ["main"],
+  "permissions": [
+    "core:default"
+  ]
+}

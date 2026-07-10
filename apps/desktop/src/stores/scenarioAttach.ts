@@ -6,9 +6,33 @@
  */
 import { reactive, ref } from "vue";
 import { defineStore } from "pinia";
-import type { AttachPolicy, ScenarioUnit } from "@btstudio/bt-core";
+import type { ScenarioUnit, UnitBindingSnapshot } from "@btstudio/bt-core";
 
 export interface ScenarioRef { name: string; sdataPath: string }
+
+/** 结构化的挂接结果 —— 替代原来 JSON.stringify 的 result。 */
+export interface WrittenTree {
+  kind: "BT" | "FSM";
+  name: string;
+  absolutePath: string;
+}
+export interface AttachResult {
+  scenario: string;
+  unit: string;
+  scenarioPath: string;
+  globalBlackboardPath?: string;
+  writtenTrees: WrittenTree[];
+  conflicts: string[];
+  message: string;
+}
+
+/** 单个实体的绑定 diff:add/remove/keep 的树名(BT/FSM 分列)。 */
+export interface UnitAssemblyDiff {
+  unitName: string;
+  bt: { add: string[]; remove: string[]; keep: string[] };
+  fsm: { add: string[]; remove: string[]; keep: string[] };
+  changed: boolean;
+}
 
 export const useScenarioAttachStore = defineStore("scenarioAttach", () => {
   const scenarios = ref<ScenarioRef[]>([]);
@@ -16,9 +40,9 @@ export const useScenarioAttachStore = defineStore("scenarioAttach", () => {
   const sdataXml = ref("");
   const units = ref<ScenarioUnit[]>([]);
   const selUnit = ref<ScenarioUnit | null>(null);
-  const policy = ref<AttachPolicy>("backup_then_overwrite");
-  const backupPath = ref("");
-  const result = ref<Record<string, unknown> | null>(null);
+  const result = ref<AttachResult | null>(null);
+  /** .sdata 里已有的 ADD Behaviac/StateMachine 命令 → baseline;pick 场景时抽出。 */
+  const baseline = ref<UnitBindingSnapshot[]>([]);
 
   /** unit.objectHandle → 勾选的 treeId 集合。用 record<string, string[]> 便于 Pinia devtools 序列化。 */
   const assemblyMap = reactive<Record<string, string[]>>({});
@@ -39,14 +63,16 @@ export const useScenarioAttachStore = defineStore("scenarioAttach", () => {
   }
   function clearAssembly(): void {
     for (const k of Object.keys(assemblyMap)) delete assemblyMap[k];
+    baseline.value = [];
   }
 
-  function resetOnPickScenario(s: ScenarioRef, content: string, parsed: ScenarioUnit[]): void {
+  function resetOnPickScenario(s: ScenarioRef, content: string, parsed: ScenarioUnit[], baselineBindings: UnitBindingSnapshot[]): void {
     selScenario.value = s;
     sdataXml.value = content;
     units.value = parsed;
     selUnit.value = null;
     clearAssembly();
+    baseline.value = baselineBindings;
   }
 
   function removeScenario(s: ScenarioRef): void {
@@ -60,15 +86,19 @@ export const useScenarioAttachStore = defineStore("scenarioAttach", () => {
     }
   }
 
+  /** 单个实体的 baseline 绑定(unit.name 键)。 */
+  function baselineForUnit(unitName: string): UnitBindingSnapshot {
+    return baseline.value.find((b) => b.unitName === unitName) ?? { unitName, bt: [], fsm: [] };
+  }
+
   return {
     scenarios,
     selScenario,
     sdataXml,
     units,
     selUnit,
-    policy,
-    backupPath,
     result,
+    baseline,
     assemblyMap,
     foldedTrees,
     assemblyOf,
@@ -77,5 +107,6 @@ export const useScenarioAttachStore = defineStore("scenarioAttach", () => {
     clearAssembly,
     resetOnPickScenario,
     removeScenario,
+    baselineForUnit,
   };
 });

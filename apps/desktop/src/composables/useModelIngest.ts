@@ -20,7 +20,7 @@ export interface IngestOutcome {
 }
 
 /**
- * 把 readModelCmpFiles / webkitdirectory 拿到的结果注入 workspace store,
+ * 把 readModelCmpFiles 扫到的结果注入 workspace store,
  * 然后立刻把全部原始类抽取到类型空间(上传即抽取,不需要用户二次操作)。
  */
 export function ingestScannedModel(res: ScannedModelDir): IngestOutcome {

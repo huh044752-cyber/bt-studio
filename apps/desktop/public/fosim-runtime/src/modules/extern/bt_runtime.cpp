@@ -1,19 +1,17 @@
 ﻿#include "modules/extern/bt_tree_task.h"
-#include "modules/runtime_script/fz_script_runtime.h"
+#include "core/logging/runtime_summary_log.h"
 
 #include "FZSimIO/FZSimDatabaseIO/IFZSimDatabaseIO.h"
 #include "FZSimIO/FZSimDatabaseIO/IFZSimDatabaseExtentionIO.h"
 #include "FZSimIO/FZSimDatabaseExtentionIO/IFZSimDecisionEditorManagerIO.h"
 #include "FZSimIO/FZSimScenarioIO/IFZSimScenarioIO.h"
-#include "core/mal/fz_marg_base_impl.h"
-#include "core/runtime/fz_runtime_profiler.h"
-#include "models/equipment/fz_equipment_impl.h"
-#include "models/mount_model/fz_mount_model_impl.h"
+#include "core/mal/cyber_marg_base_impl.h"
+#include "models/equipment/cyber_equipment_impl.h"
+#include "models/mount_model/cyber_mount_model_impl.h"
 #include "modules/extern/behavior_node_agent.h"
 #include "modules/extern/bt_compare_rules.h"
-#include "modules/unit/fz_unit_impl.h"
-#include "modules/simulation/fz_entity_sim_impl.h"
-#include "core/logging/runtime_summary_log.h"
+#include "modules/simulation/cyber_entity_sim_impl.h"
+#include "modules/unit/cyber_unit_impl.h"
 #include <cstring>
 #include <cstdlib>
 #include <sstream>
@@ -75,14 +73,14 @@ namespace BT
             return BlackboardLogMode::FullState;
         }
 
-        size_t CountMalFields(FZMalImpl* mal)
+        size_t CountMalFields(CyberMalImpl* mal)
         {
             if (mal == nullptr)
             {
                 return 0;
             }
             size_t count = 0;
-            for (FZMargBaseImpl* marg = mal->GetFirstArgument(); marg; marg = mal->GetNextArgument(marg))
+            for (CyberMargBaseImpl* marg = mal->GetFirstArgument(); marg; marg = mal->GetNextArgument(marg))
             {
                 ++count;
             }
@@ -189,17 +187,17 @@ namespace BT
             }
         }
 
-        const char* FZDecisionStatusName(FZDFMPFRC status)
+        const char* FZDecisionStatusName(CyberDFMPFRC status)
         {
             switch (status)
             {
-            case FZ_DFMPFRC_SINGLE:
+            case CYBER_DFMPFRC_SINGLE:
                 return "SINGLE";
-            case FZ_DFMPFRC_CONTINUOUS:
+            case CYBER_DFMPFRC_CONTINUOUS:
                 return "CONTINUOUS";
-            case FZ_DFMPFRC_ERROR:
+            case CYBER_DFMPFRC_ERROR:
                 return "ERROR";
-            case FZ_DFMPFRC_UNKNOWN:
+            case CYBER_DFMPFRC_UNKNOWN:
             default:
                 return "UNKNOWN";
             }
@@ -219,7 +217,7 @@ namespace BT
 
         bool HasExecutableBinding(const BTNodeDef& node)
         {
-            return !node.functionName.empty() || !node.script.empty() || !node.scriptRef.empty();
+            return !node.functionName.empty();
         }
 
         std::string BindingModeName(const BTNodeDef& node)
@@ -227,10 +225,6 @@ namespace BT
             if (node.kind == BTNodeKind::Subtree || !node.behaviorTreeName.empty())
             {
                 return "subtree";
-            }
-            if (!node.script.empty() || !node.scriptRef.empty())
-            {
-                return "script";
             }
             if (!node.functionName.empty())
             {
@@ -251,14 +245,6 @@ namespace BT
             if (!node.functionName.empty())
             {
                 return node.functionName;
-            }
-            if (!node.scriptRef.empty())
-            {
-                return node.scriptRef;
-            }
-            if (!node.script.empty())
-            {
-                return "inline-script";
             }
             if (!node.behaviorTreeName.empty())
             {
@@ -344,8 +330,8 @@ namespace BT
                                   const std::string& executor,
                                   const std::string& rawReturn,
                                   BTStatus finalStatus,
-                                  FZMalImpl* inputMal,
-                                  FZMalImpl* outputMal)
+                                  CyberMalImpl* inputMal,
+                                  CyberMalImpl* outputMal)
         {
             const char* unitName = "";
             if (context.agent && context.agent->GetUnit())
@@ -455,7 +441,7 @@ namespace BT
             return type == "Charset";
         }
 
-        bool TryParseIntegerValue(const std::string& value, FZIntegerType& parsed)
+        bool TryParseIntegerValue(const std::string& value, CyberIntegerType& parsed)
         {
             if (value.empty())
             {
@@ -467,11 +453,11 @@ namespace BT
             {
                 return false;
             }
-            parsed = static_cast<FZIntegerType>(raw);
+            parsed = static_cast<CyberIntegerType>(raw);
             return true;
         }
 
-        bool TryParseRealValue(const std::string& value, FZRealType& parsed)
+        bool TryParseRealValue(const std::string& value, CyberRealType& parsed)
         {
             if (value.empty())
             {
@@ -483,23 +469,23 @@ namespace BT
             {
                 return false;
             }
-            parsed = static_cast<FZRealType>(raw);
+            parsed = static_cast<CyberRealType>(raw);
             return true;
         }
 
         bool IsNameType(const std::string& type)
         {
-            return type == "Name" || type == "FZNameType";
+            return type == "Name" || type == "CyberNameType";
         }
 
         bool IsIntegerType(const std::string& type)
         {
-            return type == "SpinBox" || type == "Integer" || type == "Int" || type == "FZInteger" || type == "FZIntegerType";
+            return type == "SpinBox" || type == "Integer" || type == "Int" || type == "FZInteger" || type == "CyberIntegerType";
         }
 
         bool IsRealType(const std::string& type)
         {
-            return type == "DoubleSpinBox" || type == "Real" || type == "Double" || type == "FZReal" || type == "FZRealType";
+            return type == "DoubleSpinBox" || type == "Real" || type == "Double" || type == "FZReal" || type == "CyberRealType";
         }
 
         bool IsComboType(const std::string& type)
@@ -514,17 +500,17 @@ namespace BT
 
         bool IsBoolType(const std::string& type)
         {
-            return type == "CheckBox" || type == "Bool" || type == "Boolean" || type == "FZBOOL";
+            return type == "CheckBox" || type == "Bool" || type == "Boolean" || type == "CyberBOOL";
         }
 
         bool IsCoordinateType(const std::string& type)
         {
-            return type == "Coordinate" || type == "FZCoordinate" || type == "FZCoordinateType";
+            return type == "Coordinate" || type == "FZCoordinate" || type == "CyberCoordinateType";
         }
 
         bool IsVectorType(const std::string& type)
         {
-            return type == "Vector" || type == "FZVector" || type == "FZVectorType";
+            return type == "Vector" || type == "FZVector" || type == "CyberVectorType";
         }
 
         const BlackboardValue* ResolveInputValue(const InputBinding& input, const BehaviorTreeTask* treeTask)
@@ -558,7 +544,7 @@ namespace BT
             return input.type;
         }
 
-        bool BuildInputMal(const BTNodeDef& node, const BehaviorTreeTask* treeTask, FZMalImpl& mal)
+        bool BuildInputMal(const BTNodeDef& node, const BehaviorTreeTask* treeTask, CyberMalImpl& mal)
         {
             // 每次执行 Action/Condition 前构造输入 MAL。
             // 默认每 tick 重新读取黑板，保证黑板变化能立刻影响条件；
@@ -573,9 +559,9 @@ namespace BT
             return true;
         }
 
-        bool HasMalValueNamed(FZMalImpl& mal, const std::string& name)
+        bool HasMalValueNamed(CyberMalImpl& mal, const std::string& name)
         {
-            for (FZMargBaseImpl* marg = mal.GetFirstArgument(); marg; marg = mal.GetNextArgument(marg))
+            for (CyberMargBaseImpl* marg = mal.GetFirstArgument(); marg; marg = mal.GetNextArgument(marg))
             {
                 if (name == marg->GetName())
                 {
@@ -585,12 +571,12 @@ namespace BT
             return false;
         }
 
-        bool HasAnyMalValue(FZMalImpl& mal)
+        bool HasAnyMalValue(CyberMalImpl& mal)
         {
             return mal.GetFirstArgument() != nullptr;
         }
 
-        FZMalImpl* SelectEffectiveOutputMal(const BTNodeDef& node, FZMalImpl& inputMal, FZMalImpl& outputMal)
+        CyberMalImpl* SelectEffectiveOutputMal(const BTNodeDef& node, CyberMalImpl& inputMal, CyberMalImpl& outputMal)
         {
             // 决策函数历史上有两类写法：
             // - 推荐写法：把输出写到 outputMal。
@@ -620,8 +606,8 @@ namespace BT
         void EmitBlackboardPhase(BTContext& context,
                                  const BTNodeDef& node,
                                  const std::string& phase,
-                                 FZMalImpl* inputMal,
-                                 FZMalImpl* outputMal)
+                                 CyberMalImpl* inputMal,
+                                 CyberMalImpl* outputMal)
         {
             if (!context.agent || !context.treeTask)
             {
@@ -629,14 +615,12 @@ namespace BT
             }
             if (!context.agent->HasBehaviorTraceSink())
             {
-                FZRuntimeProfiler::Instance().AddBlackboardCaptureSkipped();
                 return;
             }
 
             const BlackboardLogMode mode = ResolveBlackboardLogMode();
             if (mode == BlackboardLogMode::Off || mode == BlackboardLogMode::EventOnly)
             {
-                FZRuntimeProfiler::Instance().AddBlackboardCaptureSkipped();
                 return;
             }
 
@@ -666,10 +650,9 @@ namespace BT
                                                 FZ_BEHAVIOR_EVENT_TREE_EXECUTE,
                                                 phase,
                                                 detail.str());
-            FZRuntimeProfiler::Instance().AddBlackboardCaptureBuilt();
         }
 
-        bool CopyOutputToSharedMal(BTContext& context, FZMalImpl& outputMal)
+        bool CopyOutputToSharedMal(BTContext& context, CyberMalImpl& outputMal)
         {
             if (!context.agent)
             {
@@ -684,7 +667,7 @@ namespace BT
             return true;
         }
 
-        bool WriteOutputs(const BTNodeDef& node, FZMalImpl& sourceMal, BehaviorTreeTask* treeTask, AgentPtr agent)
+        bool WriteOutputs(const BTNodeDef& node, CyberMalImpl& sourceMal, BehaviorTreeTask* treeTask, AgentPtr agent)
         {
             // Outputs 负责把函数输出字段写回黑板。
             // 写回失败是节点配置错误：函数没有产出声明字段，或 blackboardKey/variableKey 不存在。
@@ -693,7 +676,7 @@ namespace BT
             for (const auto& output : node.outputs)
             {
                 bool found = false;
-                FZMargBaseImpl* marg = sourceMal.GetFirstArgument();
+                CyberMargBaseImpl* marg = sourceMal.GetFirstArgument();
                 for (; marg; marg = sourceMal.GetNextArgument(marg))
                 {
                     if (output.name == marg->GetName())
@@ -758,8 +741,8 @@ namespace BT
                 return result;
             }
 
-            FZRealType l = 0.0;
-            FZRealType r = 0.0;
+            CyberRealType l = 0.0;
+            CyberRealType r = 0.0;
             if (!TryParseRealValue(lhs, l) || !TryParseRealValue(rhs, r))
             {
                 result.detail = "numeric_compare_requires_number";
@@ -820,9 +803,9 @@ namespace BT
         BTStatus ResolveConditionStatus(BTContext& context,
                                         const BTNodeDef& node,
                                         BTStatus functionStatus,
-                                        FZMalImpl& inputMal,
-                                        FZMalImpl* effectiveOutputMal,
-                                        FZMalImpl& outputMal)
+                                        CyberMalImpl& inputMal,
+                                        CyberMalImpl* effectiveOutputMal,
+                                        CyberMalImpl& outputMal)
         {
             // Condition/ConditionTransform 的统一收口：
             // Running 必须透传，表示函数仍在执行或脚本未完成，父节点下一 tick 继续当前分支。
@@ -859,8 +842,8 @@ namespace BT
                 return BTStatus::Failure;
             }
 
-            FZMalImpl* compareMal = effectiveOutputMal != nullptr ? effectiveOutputMal : (HasAnyMalValue(outputMal) ? &outputMal : &inputMal);
-            for (FZMargBaseImpl* marg = compareMal->GetFirstArgument(); marg; marg = compareMal->GetNextArgument(marg))
+            CyberMalImpl* compareMal = effectiveOutputMal != nullptr ? effectiveOutputMal : (HasAnyMalValue(outputMal) ? &outputMal : &inputMal);
+            for (CyberMargBaseImpl* marg = compareMal->GetFirstArgument(); marg; marg = compareMal->GetNextArgument(marg))
             {
                 if (node.compareOutputName == marg->GetName())
                 {
@@ -889,16 +872,24 @@ namespace BT
                    !selector.componentType.empty();
         }
 
+        // 旧版决策函数只挂在 Cognition 上（GetDecisionFunctionByName 是 CyberCognitionImpl 的接口），
+        // mounted models 里可能混有 Equipment，这里统一先下行转换再查找。
+        FZDecisionProprity* FindDecisionFunction(CyberMountModelImpl* model, const char* functionName, std::string& launchName)
+        {
+            auto* cognition = dynamic_cast<CyberCognitionImpl*>(model);
+            return cognition ? cognition->GetDecisionFunctionByName(functionName, launchName) : nullptr;
+        }
+
         bool BindUniqueDecision(
             BTContext& context,
-            const std::vector<FZMountModelImpl*>& models,
+            const std::vector<CyberMountModelImpl*>& models,
             const std::string& functionName,
             const bool reportAmbiguous,
             DecisionRuntime& runtime)
         {
             // 函数绑定必须唯一。多个组件同时暴露同名函数时，如果 XML 没有 selector，
             // runtime 不会猜测调用哪个组件，而是失败并输出候选组件列表。
-            FZMountModelImpl* matchedModel = nullptr;
+            CyberMountModelImpl* matchedModel = nullptr;
             FZDecisionProprity* matchedProprity = nullptr;
             std::string matchedLaunch;
             int matchCount = 0;
@@ -909,7 +900,7 @@ namespace BT
                 {
                     continue;
                 }
-                if (auto* proprity = model->GetDecisionFunctionByName(functionName.c_str(), launchName))
+                if (auto* proprity = FindDecisionFunction(model, functionName.c_str(), launchName))
                 {
                     matchedModel = model;
                     matchedProprity = proprity;
@@ -960,7 +951,7 @@ namespace BT
             return BindUniqueDecision(context, context.agent->GetMountedModels(), node.functionName, true, runtime);
         }
 
-        std::string LoadBehaviorTreeContent(FZSimulateGlobalPtr sim_global, const std::string& behavior_tree_name, AgentPtr agent)
+        std::string LoadBehaviorTreeContent(CyberSimulateGlobalPtr sim_global, const std::string& behavior_tree_name, AgentPtr agent)
         {
             if (behavior_tree_name.empty())
             {
@@ -993,7 +984,7 @@ namespace BT
             return decision_manager_io->GetBeheviacTreeContent(behavior_tree_name);
         }
 
-        BTStatus ExecuteDecision(BTContext& context, const BTNodeDef& node, DecisionRuntime& runtime, FZMalImpl& inputMal, FZMalImpl& outputMal)
+        BTStatus ExecuteDecision(BTContext& context, const BTNodeDef& node, DecisionRuntime& runtime, CyberMalImpl& inputMal, CyberMalImpl& outputMal)
         {
             // Action/Condition/ConditionTransform 都走这里执行实际业务。
             // 脚本节点和组件函数节点共用日志、黑板采样、返回值转换规则；
@@ -1002,71 +993,13 @@ namespace BT
             {
                 context.agent->NotifyBehavior(BehaviorLabel(node), BehaviorCognitionName(context, node), FZ_BEHAVIOR_EVENT_TREE_EXECUTE);
             }
-            FZRuntimeProfiler::Instance().AddBtNodeExecuted();
             EmitBlackboardPhase(context, node, "BeforeExecute", &inputMal, nullptr);
-            if (!node.script.empty() || !node.scriptRef.empty())
-            {
-                FZScript::ExecuteRequest request;
-                request.scriptText = node.script;
-                request.scriptFile = node.scriptRef;
-                request.simGlobal = context.agent ? context.agent->GetSimGlobal() : nullptr;
-                request.currentUnit = context.agent ? context.agent->GetUnit() : nullptr;
-                if (context.agent)
-                {
-                    const auto models = HasExplicitSelector(node.target) ? context.agent->GetMountedModels(node.target) : context.agent->GetMountedModels();
-                    if (models.size() == 1)
-                    {
-                        request.currentComponent = models.front();
-                    }
-                }
-                request.allowAsync = true;
-                const auto script_result = FZScript::ExecuteScript(request);
-                if (!script_result.success)
-                {
-                    if (context.agent)
-                    {
-                        context.agent->LogError(("BehaviorTree script failed: " + script_result.message).c_str());
-                    }
-                    PrintFunctionSummary(context,
-                                         node,
-                                         "script",
-                                         "ERROR:" + script_result.message,
-                                         BTStatus::Failure,
-                                         &inputMal,
-                                         nullptr);
-                    return BTStatus::Failure;
-                }
-                EmitBlackboardPhase(context, node, "AfterExecute", &inputMal, nullptr);
-                if (node.kind == BTNodeKind::Condition)
-                {
-                    const BTStatus status = script_result.returnValue.IsTruthy() ? BTStatus::Success : BTStatus::Failure;
-                    PrintFunctionSummary(context,
-                                         node,
-                                         "script",
-                                         script_result.returnValue.ToString(),
-                                         status,
-                                         &inputMal,
-                                         nullptr);
-                    return status;
-                }
-                const BTStatus status = script_result.returnValue.kind == FZScript::ValueKind::Bool && !script_result.returnValue.boolValue
-                    ? BTStatus::Failure
-                    : BTStatus::Success;
-                PrintFunctionSummary(context,
-                                     node,
-                                     "script",
-                                     script_result.returnValue.ToString(),
-                                     status,
-                                     &inputMal,
-                                     nullptr);
-                return status;
-            }
             if (!ResolveDecision(context, node, runtime))
             {
                 FOSIM_LOG_WARN("BehaviorTree", "BT_BIND_FAILED_DETAIL", [&]() {
                     const auto models = context.agent
                         ? (HasExplicitSelector(node.target) ? context.agent->GetMountedModels(node.target) : context.agent->GetMountedModels())
-                        : std::vector<FZMountModelImpl*>();
+                        : std::vector<CyberMountModelImpl*>();
                     std::ostringstream detail;
                     const char* unitName = context.agent && context.agent->GetUnit()
                         ? context.agent->GetUnit()->GetUnitNameCString()
@@ -1085,10 +1018,9 @@ namespace BT
                             continue;
                         }
                         std::string launchName;
-                        auto* decision = models[i]->GetDecisionFunctionByName(node.functionName.c_str(), launchName);
+                        auto* decision = FindDecisionFunction(models[i], node.functionName.c_str(), launchName);
                         detail << " candidate" << i << "=" << FieldOrDash(models[i]->GetEntityName())
                                << "/" << FieldOrDash(models[i]->GetClassName())
-                               << "/" << FieldOrDash(models[i]->GetComponentUUID())
                                << "/" << (decision ? "has_function" : "missing_function");
                     }
                     if (models.empty() && context.agent)
@@ -1102,11 +1034,10 @@ namespace BT
                                 continue;
                             }
                             std::string launchName;
-                            auto* decision = allModels[i]->GetDecisionFunctionByName(node.functionName.c_str(), launchName);
+                            auto* decision = FindDecisionFunction(allModels[i], node.functionName.c_str(), launchName);
                             detail << " mounted" << i << "=" << FieldOrDash(allModels[i]->GetEntityName())
                                    << "/" << FieldOrDash(allModels[i]->GetAliasName())
                                    << "/" << FieldOrDash(allModels[i]->GetClassName())
-                                   << "/" << FieldOrDash(allModels[i]->GetComponentUUID())
                                    << "/" << (decision ? "has_function" : "missing_function");
                         }
                     }
@@ -1137,7 +1068,7 @@ namespace BT
                 return BTStatus::Failure;
             }
 
-            FZDFMPFRC ret = (runtime.model->*CastTo(runtime.proprity->func_ptr))(&inputMal, &outputMal);
+            CyberDFMPFRC ret = (runtime.model->*CastTo(runtime.proprity->func_ptr))(&inputMal, &outputMal);
             const BTStatus status = ToBTStatus(ret);
             PrintFunctionSummary(context,
                                  node,
@@ -1165,7 +1096,7 @@ namespace BT
                 {
                     // inputCapture="onEnter" 用于长 Running 动作：
                     // 动作开始时锁定输入，后续 tick 不再被黑板变化打断，例如持续转向/持续攻击。
-                    capturedInput_.reset(new FZMalImpl());
+                    capturedInput_.reset(new CyberMalImpl());
                     if (!BuildInputMal(*node_, context.treeTask, *capturedInput_))
                     {
                         return false;
@@ -1182,8 +1113,8 @@ namespace BT
 
             BTStatus Update(BTContext& context) override
             {
-                FZMalImpl inputMal;
-                FZMalImpl* input = &inputMal;
+                CyberMalImpl inputMal;
+                CyberMalImpl* input = &inputMal;
                 if (node_->captureInputOnEnter)
                 {
                     input = capturedInput_.get();
@@ -1197,10 +1128,10 @@ namespace BT
                     return BTStatus::Failure;
                 }
 
-                FZMalImpl outputMal;
+                CyberMalImpl outputMal;
                 DecisionRuntime runtime;
                 BTStatus status = ExecuteDecision(context, *node_, runtime, *input, outputMal);
-                FZMalImpl* effectiveOutputMal = SelectEffectiveOutputMal(*node_, *input, outputMal);
+                CyberMalImpl* effectiveOutputMal = SelectEffectiveOutputMal(*node_, *input, outputMal);
                 if (effectiveOutputMal != nullptr)
                 {
                     // 动作输出同时写两处：
@@ -1214,7 +1145,7 @@ namespace BT
             }
 
         private:
-            std::unique_ptr<FZMalImpl> capturedInput_;
+            std::unique_ptr<CyberMalImpl> capturedInput_;
         };
 
         class ConditionTask : public BTTask
@@ -1227,16 +1158,16 @@ namespace BT
             {
                 // Condition 是叶子节点。它可以执行组件函数或脚本，
                 // 但最终状态必须经过 ResolveConditionStatus 收口，保证 Function/Output 语义一致。
-                FZMalImpl inputMal;
+                CyberMalImpl inputMal;
                 if (!BuildInputMal(*node_, context.treeTask, inputMal))
                 {
                     return BTStatus::Failure;
                 }
 
-                FZMalImpl outputMal;
+                CyberMalImpl outputMal;
                 DecisionRuntime runtime;
                 BTStatus status = ExecuteDecision(context, *node_, runtime, inputMal, outputMal);
-                FZMalImpl* effectiveOutputMal = SelectEffectiveOutputMal(*node_, inputMal, outputMal);
+                CyberMalImpl* effectiveOutputMal = SelectEffectiveOutputMal(*node_, inputMal, outputMal);
                 if (effectiveOutputMal != nullptr)
                 {
                     CopyOutputToSharedMal(context, *effectiveOutputMal);
@@ -2001,16 +1932,16 @@ namespace BT
         protected:
             BTStatus Update(BTContext& context) override
             {
-                FZMalImpl inputMal;
+                CyberMalImpl inputMal;
                 if (!BuildInputMal(*node_, context.treeTask, inputMal))
                 {
                     return BTStatus::Failure;
                 }
 
-                FZMalImpl outputMal;
+                CyberMalImpl outputMal;
                 DecisionRuntime runtime;
                 BTStatus status = ExecuteDecision(context, *node_, runtime, inputMal, outputMal);
-                FZMalImpl* effectiveOutputMal = SelectEffectiveOutputMal(*node_, inputMal, outputMal);
+                CyberMalImpl* effectiveOutputMal = SelectEffectiveOutputMal(*node_, inputMal, outputMal);
                 if (effectiveOutputMal != nullptr)
                 {
                     CopyOutputToSharedMal(context, *effectiveOutputMal);
@@ -2174,10 +2105,10 @@ namespace BT
         return views;
     }
 
-    bool AddValueToMal(FZMalImpl& mal, const std::string& name, const std::string& type, const std::string& value)
+    bool AddValueToMal(CyberMalImpl& mal, const std::string& name, const std::string& type, const std::string& value)
     {
         // XML 输入值统一以字符串保存，进入模型函数前在这里按 type 转成 MAL。
-        // FZNameType 在当前 MAL 实现中用 AddString 写入，是为了兼容工具生成代码的 GetName/GetString 读取链。
+        // CyberNameType 在当前 MAL 实现中用 AddString 写入，是为了兼容工具生成代码的 GetName/GetString 读取链。
         // 数值解析失败会落到 0/0.0，这是资源默认值语义；需要“缺字段即失败”的逻辑应在模型函数内显式校验。
         if (name.empty())
         {
@@ -2185,51 +2116,51 @@ namespace BT
         }
         if (IsBoolType(type))
         {
-            return mal.AddBoolean(name.c_str(), IsTrueString(value) ? FZ_TRUE : FZ_FALSE) == FZ_SUCCESS;
+            return mal.AddBoolean(name.c_str(), IsTrueString(value) ? CYBER_TRUE : CYBER_FALSE) == CYBER_SUCCESS;
         }
         if (IsIntegerType(type))
         {
-            FZIntegerType parsed = 0;
+            CyberIntegerType parsed = 0;
             if (!TryParseIntegerValue(value, parsed))
             {
                 parsed = 0;
             }
-            return mal.AddInteger(name.c_str(), parsed) == FZ_SUCCESS;
+            return mal.AddInteger(name.c_str(), parsed) == CYBER_SUCCESS;
         }
         if (IsRealType(type))
         {
-            FZRealType parsed = 0.0;
+            CyberRealType parsed = 0.0;
             if (!TryParseRealValue(value, parsed))
             {
                 parsed = 0.0;
             }
-            return mal.AddReal(name.c_str(), parsed) == FZ_SUCCESS;
+            return mal.AddReal(name.c_str(), parsed) == CYBER_SUCCESS;
         }
         if (IsComboType(type))
         {
-            FZIntegerType parsedInteger = 0;
+            CyberIntegerType parsedInteger = 0;
             if (TryParseIntegerValue(value, parsedInteger))
             {
-                return mal.AddInteger(name.c_str(), parsedInteger) == FZ_SUCCESS;
+                return mal.AddInteger(name.c_str(), parsedInteger) == CYBER_SUCCESS;
             }
-            FZRealType parsedReal = 0.0;
+            CyberRealType parsedReal = 0.0;
             if (TryParseRealValue(value, parsedReal))
             {
-                return mal.AddReal(name.c_str(), parsedReal) == FZ_SUCCESS;
+                return mal.AddReal(name.c_str(), parsedReal) == CYBER_SUCCESS;
             }
-            return mal.AddString(name.c_str(), value.c_str()) == FZ_SUCCESS;
+            return mal.AddString(name.c_str(), value.c_str()) == CYBER_SUCCESS;
         }
         if (IsJulianType(type))
         {
-            return mal.AddJulian(name.c_str(), static_cast<FZJulianType>(std::atof(value.c_str()))) == FZ_SUCCESS;
+            return mal.AddJulian(name.c_str(), static_cast<CyberJulianType>(std::atof(value.c_str()))) == CYBER_SUCCESS;
         }
         if (IsCoordinateType(type))
         {
             double lat = 0.0;
             double lon = 0.0;
             TryParseDoublePair(value, lat, lon);
-            FZCoordinateType coord(lat, lon);
-            return mal.AddCoordinate(name.c_str(), coord) == FZ_SUCCESS;
+            CyberCoordinateType coord(lat, lon);
+            return mal.AddCoordinate(name.c_str(), coord) == CYBER_SUCCESS;
         }
         if (IsVectorType(type))
         {
@@ -2240,22 +2171,188 @@ namespace BT
             {
                 return false;
             }
-            FZVectorType vector_value(x, y, z);
-            return mal.AddVector(name.c_str(), vector_value) == FZ_SUCCESS;
+            CyberVectorType vector_value(x, y, z);
+            return mal.AddVector(name.c_str(), vector_value) == CYBER_SUCCESS;
         }
         if (IsCharsetType(type))
         {
-            return mal.AddString(name.c_str(), value.c_str()) == FZ_SUCCESS;
+            return mal.AddString(name.c_str(), value.c_str()) == CYBER_SUCCESS;
         }
         if (IsNameType(type))
         {
-            return mal.AddString(name.c_str(), value.c_str()) == FZ_SUCCESS;
+            return mal.AddString(name.c_str(), value.c_str()) == CYBER_SUCCESS;
         }
         if (IsStringType(type))
         {
-            return mal.AddString(name.c_str(), value.c_str()) == FZ_SUCCESS;
+            return mal.AddString(name.c_str(), value.c_str()) == CYBER_SUCCESS;
         }
-        return mal.AddString(name.c_str(), value.c_str()) == FZ_SUCCESS;
+        return mal.AddString(name.c_str(), value.c_str()) == CYBER_SUCCESS;
+    }
+
+    // ---- 通用黑板 XML 加载器(对齐新引擎 c4095297) ----
+    // 语义:遍历顶层 <Blackboards><Blackboard...>,每个 <Blackboard> 灌一个 BlackboardDef 进 store;
+    // 若某个 <Blackboard> 没写 scope 属性,按 defaultScope 归属;
+    // 若整个文档就一坨 <Blackboard><Variable/>... 而没有 <Blackboards> 包装,
+    // 则用调用方给的 generatedLocalBoardId / generatedLocalBoardName 合成一个 board(BT/FSM 局部黑板走此路径)。
+    bool LoadBlackboardsFromXmlNode(const pugi::xml_node& root,
+                                    BlackboardStore& store,
+                                    BlackboardScope defaultScope,
+                                    const std::string& generatedLocalBoardId,
+                                    const std::string& generatedLocalBoardName,
+                                    std::string* error)
+    {
+        // 优先走 <Blackboards> 包装(现代格式,含多板)。
+        auto boards_container = root.child("Blackboards");
+        if (!boards_container.empty())
+        {
+            for (const auto& board_node : boards_container.children("Blackboard"))
+            {
+                BlackboardDef board;
+                board.id = board_node.attribute("id").as_string();
+                board.name = board_node.attribute("name").as_string();
+                const std::string scope_attr = board_node.attribute("scope").as_string();
+                board.scope = scope_attr == "global" ? BlackboardScope::Global
+                            : (scope_attr == "local" ? BlackboardScope::Local : defaultScope);
+                board.linked = std::string(board_node.attribute("linked").as_string()) == "true";
+                if (board.id.empty())
+                {
+                    if (error) *error = "Blackboard id is required.";
+                    return false;
+                }
+                for (const auto& var_node : board_node.children("Variable"))
+                {
+                    BlackboardValue value;
+                    value.id = var_node.attribute("id").as_string();
+                    value.key = var_node.attribute("key").as_string();
+                    value.type = var_node.attribute("type").as_string();
+                    value.value = var_node.attribute("value").as_string();
+                    if (value.id.empty() || value.key.empty())
+                    {
+                        if (error) *error = "Blackboard Variable id and key are required.";
+                        return false;
+                    }
+                    board.variables[value.id] = value;
+                }
+                store.AddBlackboard(board);
+            }
+            return true;
+        }
+
+        // 兜底:根节点本身是 <Blackboards>(scenario 层 global_black_boards.xml 就是这种)。
+        if (std::string(root.name()) == "Blackboards")
+        {
+            return LoadBlackboardsFromXmlNode(root.parent(), store, defaultScope, generatedLocalBoardId, generatedLocalBoardName, error)
+                || [&]() {
+                       // 双保险:直接把 root 当 blackboards_container 再来一次。
+                       for (const auto& board_node : root.children("Blackboard"))
+                       {
+                           BlackboardDef board;
+                           board.id = board_node.attribute("id").as_string();
+                           board.name = board_node.attribute("name").as_string();
+                           const std::string scope_attr = board_node.attribute("scope").as_string();
+                           board.scope = scope_attr == "global" ? BlackboardScope::Global
+                                       : (scope_attr == "local" ? BlackboardScope::Local : defaultScope);
+                           if (board.id.empty()) continue;
+                           for (const auto& var_node : board_node.children("Variable"))
+                           {
+                               BlackboardValue value;
+                               value.id = var_node.attribute("id").as_string();
+                               value.key = var_node.attribute("key").as_string();
+                               value.type = var_node.attribute("type").as_string();
+                               value.value = var_node.attribute("value").as_string();
+                               if (value.id.empty() || value.key.empty()) continue;
+                               board.variables[value.id] = value;
+                           }
+                           store.AddBlackboard(board);
+                       }
+                       return true;
+                   }();
+        }
+
+        // 老格式兼容:根节点下直接有 <Blackboard><Variable/>...,没有 <Blackboards> 包装,
+        // 合成一个 board 装载(BT/FSM 局部黑板走这条路)。
+        auto legacy_boards = root.children("Blackboard");
+        if (legacy_boards.begin() == legacy_boards.end())
+        {
+            return true; // 没有 <Blackboards>,也没有 <Blackboard>,视为空黑板集合,不当错误。
+        }
+        BlackboardDef board;
+        board.id = generatedLocalBoardId;
+        board.name = generatedLocalBoardName;
+        board.scope = defaultScope;
+        board.linked = false;
+        for (const auto& board_node : legacy_boards)
+        {
+            for (const auto& var_node : board_node.children("Variable"))
+            {
+                BlackboardValue value;
+                value.id = var_node.attribute("id").as_string();
+                value.key = var_node.attribute("key").as_string();
+                value.type = var_node.attribute("type").as_string();
+                value.value = var_node.attribute("value").as_string();
+                if (value.id.empty() || value.key.empty())
+                {
+                    if (error) *error = "Blackboard Variable id and key are required.";
+                    return false;
+                }
+                board.variables[value.id] = value;
+            }
+        }
+        if (!board.variables.empty())
+        {
+            store.AddBlackboard(board);
+        }
+        return true;
+    }
+
+    bool LoadBlackboardsFromXmlContent(const std::string& content,
+                                       BlackboardStore& store,
+                                       BlackboardScope defaultScope,
+                                       std::string* error)
+    {
+        pugi::xml_document doc;
+        const auto result = doc.load_buffer(content.data(), content.size());
+        if (!result)
+        {
+            if (error) *error = std::string("Failed to parse blackboard XML: ") + result.description();
+            return false;
+        }
+        // 顶层可能是 <Blackboards>(scenario 层 global_black_boards.xml 就是这样),
+        // 也可能是任意包装(<Root>/<Workspace> 之类),这里直接把 document root 当入口交给 XmlNode 版。
+        const std::string generatedId = "global_blackboards";
+        const std::string generatedName = defaultScope == BlackboardScope::Global ? "全局黑板" : "局部黑板";
+        return LoadBlackboardsFromXmlNode(doc, store, defaultScope, generatedId, generatedName, error);
+    }
+
+    const BlackboardValue* ResolveBlackboardBinding(const BlackboardStore& store,
+                                                    BlackboardScope /*scope*/,
+                                                    std::string& blackboardId,
+                                                    const std::string& variableId,
+                                                    std::string* error)
+    {
+        if (variableId.empty())
+        {
+            if (error) *error = "variableKey is empty";
+            return nullptr;
+        }
+        // 若 blackboardId 明确,直接查;否则遍历 store 里所有 board 找同名 variableId 命中。
+        if (!blackboardId.empty())
+        {
+            const auto* hit = store.Find(blackboardId, variableId);
+            if (!hit && error) *error = "blackboard/variable not found: " + blackboardId + "/" + variableId;
+            return hit;
+        }
+        for (const auto& bid : store.GetBoardIds())
+        {
+            const auto* hit = store.Find(bid, variableId);
+            if (hit)
+            {
+                blackboardId = bid;
+                return hit;
+            }
+        }
+        if (error) *error = "variable not found in any board: " + variableId;
+        return nullptr;
     }
 
     std::string SerializeBlackboardViews(const std::vector<BlackboardValueView>& views)
@@ -2281,12 +2378,12 @@ namespace BT
         return out.str();
     }
 
-    std::string SerializeMal(FZMalImpl& mal)
+    std::string SerializeMal(CyberMalImpl& mal)
     {
         std::ostringstream out;
         out << "[";
         bool first = true;
-        for (FZMargBaseImpl* marg = mal.GetFirstArgument(); marg; marg = mal.GetNextArgument(marg))
+        for (CyberMargBaseImpl* marg = mal.GetFirstArgument(); marg; marg = mal.GetNextArgument(marg))
         {
             if (!first)
             {
@@ -2303,7 +2400,7 @@ namespace BT
         return out.str();
     }
 
-    std::string MargToString(FZMargBaseImpl* marg)
+    std::string MargToString(CyberMargBaseImpl* marg)
     {
         if (!marg || !marg->GetValue())
         {
@@ -2313,31 +2410,31 @@ namespace BT
         std::ostringstream out;
         switch (marg->GetType())
         {
-        case FZ_MARGTYPE_BOOL:
-            out << (*(static_cast<FZBOOL*>(marg->GetValue())) == FZ_TRUE ? "true" : "false");
+        case CYBER_MARGTYPE_BOOL:
+            out << (*(static_cast<CyberBOOL*>(marg->GetValue())) == CYBER_TRUE ? "true" : "false");
             break;
-        case FZ_MARGTYPE_INTEGER:
-            out << *(static_cast<FZIntegerType*>(marg->GetValue()));
+        case CYBER_MARGTYPE_INTEGER:
+            out << *(static_cast<CyberIntegerType*>(marg->GetValue()));
             break;
-        case FZ_MARGTYPE_REAL:
-        case FZ_MARGTYPE_JULIAN:
-            out << *(static_cast<FZRealType*>(marg->GetValue()));
+        case CYBER_MARGTYPE_REAL:
+        case CYBER_MARGTYPE_JULIAN:
+            out << *(static_cast<CyberRealType*>(marg->GetValue()));
             break;
-        case FZ_MARGTYPE_COORDINATE:
+        case CYBER_MARGTYPE_COORDINATE:
             {
-                auto* coord = static_cast<FZCoordinateType*>(marg->GetValue());
+                auto* coord = static_cast<CyberCoordinateType*>(marg->GetValue());
                 out << coord->Lat << "," << coord->Lon;
             }
             break;
-        case FZ_MARGTYPE_NAME:
+        case CYBER_MARGTYPE_NAME:
             {
-                FZNameType name;
-                memset(name.data(), 0, sizeof(FZNameType));
-                memcpy(name.data(), marg->GetValue(), std::min(marg->GetSize(), sizeof(FZNameType) - 1));
+                CyberNameType name;
+                memset(name.data(), 0, sizeof(CyberNameType));
+                memcpy(name.data(), marg->GetValue(), std::min(marg->GetSize(), sizeof(CyberNameType) - 1));
                 out << name.data();
             }
             break;
-        case FZ_MARGTYPE_STRING:
+        case CYBER_MARGTYPE_STRING:
         default:
             out << static_cast<const char*>(marg->GetValue());
             break;

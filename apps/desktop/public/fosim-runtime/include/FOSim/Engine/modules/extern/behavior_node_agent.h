@@ -14,7 +14,7 @@ namespace BT
     class BehaviorNodeAgent : public Agent
     {
     public:
-        BehaviorNodeAgent(FZSimulateGlobalPtr sim_global, IFZUnit* unit_);
+        BehaviorNodeAgent(CyberSimulateGlobalPtr sim_global, ICyberUnit* unit_);
         ~BehaviorNodeAgent();
         BehaviorNodeAgent() = delete;
 

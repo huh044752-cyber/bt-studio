@@ -12,7 +12,7 @@ namespace BT
     class StateMachineAgent : public Agent
     {
     public:
-        StateMachineAgent(FZSimulateGlobalPtr sim_global, IFZUnit* unit_);
+        StateMachineAgent(CyberSimulateGlobalPtr sim_global, ICyberUnit* unit_);
         ~StateMachineAgent();
         StateMachineAgent() = delete;
 

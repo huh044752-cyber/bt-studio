@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, computed } from "vue";
+import { onMounted, computed, ref } from "vue";
 import { useRoute } from "vue-router";
 import { navRoutes } from "./router";
 import { useWorkspaceStore } from "./stores/workspace";
@@ -11,10 +11,14 @@ const route = useRoute();
 const ws = useWorkspaceStore();
 const c = useConsoleStore();
 
+// Tauri-only:非 Tauri 环境 (浏览器直连 vite / 用户看到 localhost 页) 阻断进入设计器,
+// 避免用户误以为浏览器也是"完整应用"。App.vue 是主入口,一处拦所有页面。
+const isDesktop = ref(isTauri());
+const currentUrl = typeof window !== "undefined" ? window.location.href : "";
+
 onMounted(() => {
   // 不再自动 seed:刷新后默认空状态(无树/无类型),由用户主动「新建/打开/加载示例」。
-  // 最近工作空间列表已在 store 初始化时从 localStorage 还原。
-  c.info("workspace", `BT Studio 启动(${isTauri() ? "Tauri" : "浏览器预览"}模式) · 最近工作空间 ${ws.recentWorkspaces.length} 个`);
+  c.info("workspace", `BT Studio 启动(${isDesktop.value ? "Tauri 桌面" : "浏览器(不支持)"}模式) · 最近工作空间 ${ws.recentWorkspaces.length} 个`);
 });
 
 // 控制台高度拖拽(向上拖增大)。
@@ -51,7 +55,19 @@ const groups = computed(() => {
 </script>
 
 <template>
-  <div class="app-shell">
+  <div v-if="!isDesktop" class="browser-block">
+    <div class="bb-card">
+      <div class="bb-logo">BT</div>
+      <h1>BT Studio 需在桌面版打开</h1>
+      <p>本应用采用 Tauri-only 架构,浏览器沙箱无法访问 modelRoot 目录进行 .bt/.sm 写盘。</p>
+      <ul>
+        <li>请从 <code>bt-studio.exe</code> 启动 (推荐)</li>
+        <li>或用 <code>pnpm --filter @btstudio/desktop tauri dev</code> 从源码开发</li>
+      </ul>
+      <p class="muted-2">当前 URL: {{ currentUrl }}</p>
+    </div>
+  </div>
+  <div v-else class="app-shell">
     <aside class="sidebar">
       <div class="brand">
         <span class="logo">BT</span>
@@ -96,6 +112,33 @@ const groups = computed(() => {
 </template>
 
 <style scoped>
+.browser-block {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  background: var(--surface-1);
+  padding: 40px;
+}
+.bb-card {
+  max-width: 560px;
+  padding: 32px 36px;
+  background: var(--surface-2);
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-1);
+}
+.bb-logo {
+  width: 44px; height: 44px;
+  display: grid; place-items: center;
+  background: var(--accent); color: #fff;
+  font-weight: 700; border-radius: 10px;
+  margin-bottom: 20px;
+}
+.bb-card h1 { font-size: 18px; margin: 0 0 12px; color: var(--text-primary); }
+.bb-card p { font-size: 13px; line-height: 1.6; color: var(--text-secondary); margin: 8px 0; }
+.bb-card ul { padding-left: 20px; font-size: 13px; color: var(--text-secondary); line-height: 1.8; }
+.bb-card code { font-family: ui-monospace, "SF Mono", Consolas, monospace; padding: 1px 6px; background: var(--surface-3); border-radius: 4px; font-size: 12px; }
+
 .app-shell {
   display: grid;
   grid-template-columns: 220px 1fr;

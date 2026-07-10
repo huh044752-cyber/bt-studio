@@ -7,13 +7,13 @@
 #include <memory>
 #include <vector>
 
-class FZMountModelImpl;
+class CyberMountModelImpl;
 
 namespace BT
 {
     struct DecisionRuntime
     {
-        FZMountModelImpl* model = nullptr;
+        CyberMountModelImpl* model = nullptr;
         FZDecisionProprity* proprity = nullptr;
         std::string launchName;
     };

@@ -5,7 +5,7 @@ import { useConsoleStore } from "@/stores/console";
 import ActionButton from "@/components/common/ActionButton.vue";
 import ModalDialog from "@/components/common/ModalDialog.vue";
 import Splitter from "@/components/common/Splitter.vue";
-import { downloadText, readTextFile } from "@/services/tauri";
+import { saveTextFile, readTextFile } from "@/services/tauri";
 import { functionOwnerClass, newFunctionId, newEnumId, prefixedId } from "@btstudio/bt-core";
 
 const ws = useWorkspaceStore();
@@ -156,9 +156,11 @@ async function importXml() {
 function applyToCatalog() {
   ws.applyMetaXml(xmlText.value); // XML → 类型空间
 }
-function exportMeta() {
-  downloadText("catalog.meta.xml", ws.exportMetaXml(), "application/xml");
-  c.success("export", "导出 meta.xml");
+async function exportMeta() {
+  const r = await saveTextFile("catalog.meta.xml", ws.exportMetaXml(), {
+    filters: [{ name: "meta XML", extensions: ["xml"] }],
+  });
+  if (r) c.success("export", `导出 meta.xml → ${r.path}`);
 }
 
 /** 可选 Cyber 运行类型(成员/参数)。 */

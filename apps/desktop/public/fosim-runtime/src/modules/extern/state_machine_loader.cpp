@@ -28,7 +28,7 @@ namespace BT
         {
             // 这些节点是状态机 Root/State 的元数据容器，不参与状态节点计数。
             // ReferencedBehaviorTrees 只保存实例引用树，不能被当作 State 解析。
-            return name == "Inputs" || name == "Outputs" || name == "Blackboards" || name == "ReferencedBehaviorTrees";
+            return name == "Inputs" || name == "Outputs" || name == "Blackboards" || name == "Blackboard" || name == "ReferencedBehaviorTrees";
         }
 
         std::string SerializeXmlNode(const pugi::xml_node& node)
@@ -194,12 +194,6 @@ namespace BT
         {
             state->functionName = stateNode.attribute("function").as_string();
         }
-        state->functionScript = stateNode.attribute("functionScript").as_string();
-        state->scriptRef = stateNode.attribute("scriptRef").as_string();
-        if (state->scriptRef.empty())
-        {
-            state->scriptRef = stateNode.attribute("functionScriptRef").as_string();
-        }
         state->behaviorTreeName = stateNode.attribute("behaviac_tree").as_string();
         state->behaviorTreeTemplateId = stateNode.attribute("btTemplateId").as_string();
         state->behaviorTreeInstanceId = stateNode.attribute("btInstanceId").as_string();
@@ -246,9 +240,9 @@ namespace BT
             SetError(error, "State id is required.");
             return StateDefPtr();
         }
-        if (state->functionName.empty() && state->functionScript.empty() && state->scriptRef.empty() && state->behaviorTreeName.empty())
+        if (state->functionName.empty() && state->behaviorTreeName.empty())
         {
-            SetError(error, "State function or script is required. State id: " + std::to_string(state->id));
+            SetError(error, "State function is required. State id: " + std::to_string(state->id));
             return StateDefPtr();
         }
         if (def.statesById.find(state->id) != def.statesById.end())
@@ -291,12 +285,6 @@ namespace BT
             if (transition.functionName.empty())
             {
                 transition.functionName = child.attribute("function").as_string();
-            }
-            transition.conditionScript = child.attribute("conditionScript").as_string();
-            transition.scriptRef = child.attribute("scriptRef").as_string();
-            if (transition.scriptRef.empty())
-            {
-                transition.scriptRef = child.attribute("conditionScriptRef").as_string();
             }
             transition.executeType = child.attribute("executeType").as_string();
             transition.behaviorTreeTemplateId = child.attribute("btTemplateId").as_string();
@@ -346,11 +334,9 @@ namespace BT
                 return StateDefPtr();
             }
             if (transition.functionName.empty() &&
-                transition.conditionScript.empty() &&
-                transition.scriptRef.empty() &&
                 transition.behaviorTreeName.empty())
             {
-                SetError(error, "ConditionTransform function or script is required. Transform id: " + std::to_string(transition.id));
+                SetError(error, "ConditionTransform function is required. Transform id: " + std::to_string(transition.id));
                 return StateDefPtr();
             }
             if (!LoadInputs(child, transition.inputs, error))
@@ -429,7 +415,10 @@ namespace BT
             input.type = input_node.attribute("type").as_string();
             input.value = input_node.attribute("value").as_string();
             const std::string source = input_node.attribute("source").as_string();
-            if (source == "blackboard")
+            // 三态 source(对齐新引擎 c4095297):blackboard=legacy / local / global。
+            // 状态机层暂不接入 globalBlackboards 注入(与新引擎同当前状态),
+            // 故 global 也在 def.blackboards 里 resolve;后续如需接 sim 全局黑板,再补 SetGlobalBlackboards。
+            if (source == "blackboard" || source == "local" || source == "global")
             {
                 input.source = InputSource::Blackboard;
                 input.blackboardId = input_node.attribute("blackboardKey").as_string();
@@ -462,6 +451,8 @@ namespace BT
             output.name = output_node.attribute("name").as_string();
             output.blackboardId = output_node.attribute("blackboardKey").as_string();
             output.variableId = output_node.attribute("variableKey").as_string();
+            // Output 也接受 source=local/global(与 Input 三态对齐)。
+            (void)output_node.attribute("source"); // 不额外做 store 路由,与 Input 保持同一策略。
             if (output.name.empty() || output.blackboardId.empty() || output.variableId.empty())
             {
                 SetError(error, "StateMachine Output requires name/blackboardKey/variableKey.");

@@ -117,6 +117,7 @@ namespace BT
             // 特别是 ReferencedBehaviorTrees 在新版 sdata/模板里会长期存在，
             // loader 必须跳过它，否则会把引用表误判成 Unknown 行为节点。
             return name == "Blackboards" ||
+                   name == "Blackboard" ||
                    name == "ReferencedBehaviorTrees" ||
                    name == "Inputs" ||
                    name == "Outputs" ||
@@ -189,6 +190,11 @@ namespace BT
                    node.attribute("modelClass") ||
                    node.attribute("modelType");
         }
+    }
+
+    void BTXmlLoader::SetGlobalBlackboards(const BlackboardStore* globalBlackboards)
+    {
+        globalBlackboards_ = globalBlackboards;
     }
 
     BehaviorTreeDefPtr BTXmlLoader::LoadFromContent(const std::string& content, std::string* error)
@@ -366,8 +372,6 @@ namespace BT
                 node->behaviorTreeName = ref_iter->second;
             }
         }
-        node->script = xmlNode.attribute("script").as_string();
-        node->scriptRef = xmlNode.attribute("scriptRef").as_string();
         node->target.cognition = xmlNode.attribute("cognition").as_string();
         node->target.modelName = xmlNode.attribute("mdataName").as_string();
         node->target.modelClass = xmlNode.attribute("className").as_string();
@@ -407,9 +411,9 @@ namespace BT
             return BTNodeDefPtr();
         }
         if ((kind == BTNodeKind::Action || kind == BTNodeKind::Condition) &&
-            node->functionName.empty() && node->script.empty() && node->scriptRef.empty())
+            node->functionName.empty())
         {
-            SetError(error, "Action/Condition function or script is required. Node id: " + std::to_string(node->id));
+            SetError(error, "Action/Condition function is required. Node id: " + std::to_string(node->id));
             return BTNodeDefPtr();
         }
         if (kind == BTNodeKind::ConditionTransform && node->functionName.empty())
@@ -427,21 +431,34 @@ namespace BT
         auto inputsNode = xmlNode.child("Inputs");
         for (const auto& inputNode : inputsNode.children("Input"))
         {
-            // Input 进入 runtime 后会被 BuildInputMal 转成 FZMalImpl。
+            // Input 进入 runtime 后会被 BuildInputMal 转成 CyberMalImpl。
             // source="blackboard" 表示运行时从黑板取最新值；否则使用 XML 固定 value。
             InputBinding input;
             input.name = inputNode.attribute("name").as_string();
             input.type = inputNode.attribute("type").as_string();
             input.value = inputNode.attribute("value").as_string();
+            // source 三态:blackboard(legacy) / local / global。
+            // - local / blackboard → resolve 到 def.blackboards(BT 局部)
+            // - global → resolve 到 globalBlackboards_(scenario 层,SetGlobalBlackboards 注入)
             std::string source = inputNode.attribute("source").as_string();
-            if (source == "blackboard")
+            if (source == "blackboard" || source == "local" || source == "global")
             {
                 input.source = InputSource::Blackboard;
                 input.blackboardId = inputNode.attribute("blackboardKey").as_string();
                 input.variableId = inputNode.attribute("variableKey").as_string();
-                if (!def.blackboards.Find(input.blackboardId, input.variableId))
+                const BlackboardScope scope = source == "global" ? BlackboardScope::Global : BlackboardScope::Local;
+                const BlackboardStore& binding_store =
+                    (scope == BlackboardScope::Global && globalBlackboards_ != nullptr) ? *globalBlackboards_ : def.blackboards;
+                std::string bindError;
+                if (!ResolveBlackboardBinding(binding_store, scope, input.blackboardId, input.variableId, &bindError))
                 {
-                    SetError(error, "Invalid blackboard input binding in node id: " + std::to_string(node->id));
+                    SetError(error,
+                             "Invalid blackboard input binding in node id: " + std::to_string(node->id) +
+                             ", input=" + input.name +
+                             ", source=" + source +
+                             ", blackboardKey=" + input.blackboardId +
+                             ", variableKey=" + input.variableId +
+                             ", detail=" + bindError);
                     return BTNodeDefPtr();
                 }
             }
@@ -463,9 +480,22 @@ namespace BT
             output.name = outputNode.attribute("name").as_string();
             output.blackboardId = outputNode.attribute("blackboardKey").as_string();
             output.variableId = outputNode.attribute("variableKey").as_string();
-            if (output.name.empty() || !def.blackboards.Find(output.blackboardId, output.variableId))
+            // Output 也支持 source=global 走全局黑板;不写默认 local。
+            const std::string source = outputNode.attribute("source").as_string();
+            const BlackboardScope scope = source == "global" ? BlackboardScope::Global : BlackboardScope::Local;
+            const BlackboardStore& binding_store =
+                (scope == BlackboardScope::Global && globalBlackboards_ != nullptr) ? *globalBlackboards_ : def.blackboards;
+            std::string bindError;
+            if (output.name.empty() ||
+                !ResolveBlackboardBinding(binding_store, scope, output.blackboardId, output.variableId, &bindError))
             {
-                SetError(error, "Invalid output binding in node id: " + std::to_string(node->id));
+                SetError(error,
+                         "Invalid output binding in node id: " + std::to_string(node->id) +
+                         ", output=" + output.name +
+                         ", source=" + source +
+                         ", blackboardKey=" + output.blackboardId +
+                         ", variableKey=" + output.variableId +
+                         ", detail=" + bindError);
                 return BTNodeDefPtr();
             }
             node->outputs.push_back(output);

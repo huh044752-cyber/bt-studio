@@ -51,9 +51,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   // 老引擎分支:默认指向老模型目录(F:/0411/ccc/FZFOSimModel),用户可在配置里改写。
   const modelRoot = ref<string>("F:/0411/ccc/FZFOSimModel");
   // 工作空间配置(对齐 behaviac workspace.xml:导出代码目录/语言 + FOSim 命名空间)
-  // 浏览器模式因 File System Access API 沙箱限制无法拿到绝对路径,
-  // 选目录后此字段写 "browser::<folder-name>" 标记,避免冒充路径误导用户;
-  // Tauri 模式下是真实绝对路径。UI 自行根据前缀展示。
+  // Tauri 原生对话框返回的绝对路径,空串表示未配置。
   const exportCodeDir = ref<string>("");
   const language = ref<"cpp" | "cs">("cpp");
   const cppNamespace = ref<string>("btproj");

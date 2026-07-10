@@ -15,19 +15,20 @@ import Splitter from "@/components/common/Splitter.vue";
 import { scanScenarios, readPathText, writeScenarioFile, readTextFile, writeArtifact } from "@/services/tauri";
 import {
   parseScenarioUnits,
+  parseExistingBindings,
   attachOldScenario,
   attachOldScenarioStateMachine,
   validateTreeForUnit,
   type ScenarioUnit,
-  type AttachPolicy,
 } from "@btstudio/bt-core";
+import type { UnitAssemblyDiff, WrittenTree } from "@/stores/scenarioAttach";
 
 const ws = useWorkspaceStore();
 const c = useConsoleStore();
 const sa = useScenarioAttachStore();
 // 从 store 里"拆" reactive 引用出来在模板/逻辑里像原来的 ref 一样用,
 // 组件卸载时 store 依然保留状态(pinia 全局),再次进入本页 setup 重跑 → 数据仍在。
-const { scenarios, selScenario, sdataXml, units, selUnit, policy, backupPath, result, assemblyMap } = storeToRefs(sa);
+const { scenarios, selScenario, sdataXml, units, selUnit, result, assemblyMap } = storeToRefs(sa);
 
 const selectedTrees = computed(() => {
   if (!selUnit.value) return [] as typeof ws.trees;
@@ -54,18 +55,19 @@ const pageRoot = ref<HTMLElement | null>(null);
 
 async function scan() {
   const root = ws.modelRoot;
-  if (!root) { c.warning("publish", "工作空间未配置模型目录,请到「工作空间 → 工作空间配置」设置"); }
-  let list = root ? await scanScenarios(root) : null;
-  if (!list) {
-    const f = await readTextFile();
+  if (!root) {
+    // 没配 modelRoot:让用户手动选一份 .sdata 直接进入组装台。
+    const f = await readTextFile([{ name: "想定", extensions: ["sdata", "xml"] }]);
     if (f) {
-      const one: ScenarioRef = { name: f.name.replace(/\.sdata$/, ""), sdataPath: f.name };
+      const one: ScenarioRef = { name: f.name.replace(/\.sdata$/, ""), sdataPath: f.path ?? f.name };
       sa.scenarios = [one];
       pickScenario(one, f.content);
-      return;
+    } else {
+      c.warning("publish", "工作空间未配置模型目录,请到「工作空间 → 工作空间配置」设置");
     }
-    list = [];
+    return;
   }
+  const list = await scanScenarios(root);
   sa.scenarios = list;
   c.success("publish", `扫描到 ${list.length} 个想定`);
 }
@@ -73,8 +75,9 @@ async function scan() {
 async function pickScenario(s: ScenarioRef, contentOverride?: string) {
   const content = contentOverride ?? (await readPathText(s.sdataPath)) ?? "";
   const parsed = parseScenarioUnits(content);
-  sa.resetOnPickScenario(s, content, parsed);
-  c.info("publish", `场景 ${s.name}:${parsed.length} 个实体`);
+  const baseline = parseExistingBindings(content);
+  sa.resetOnPickScenario(s, content, parsed, baseline);
+  c.info("publish", `场景 ${s.name}:${parsed.length} 个实体 · baseline 抽出 ${baseline.reduce((n, b) => n + b.bt.length + b.fsm.length, 0)} 条已挂命令`);
 }
 
 /** 从扫描列表移除一个想定;若正是当前选中,一并清空右侧的实体与组装状态。 */
@@ -100,13 +103,61 @@ function associateComponentsForTree(tree: (typeof ws.trees)[number], u: Scenario
   return n;
 }
 
-async function attach() {
-  if (!selScenario.value || !selUnit.value) throw new Error("未选场景/实体");
-  if (selectedTrees.value.length === 0) throw new Error("未勾选任何行为树/状态机");
-  if (totalErrors.value > 0) throw new Error(`校验未通过:实体组件缺少对应类/方法 ${totalErrors.value} 项`);
+/**
+ * 计算当前勾选 vs .sdata baseline 的差异。以【所有】曾出现在 baseline 或当前勾选的实体为行,
+ * 给出每个实体的 BT/FSM add/remove/keep 三列。UI 走 git-style 红绿 chip 渲染。
+ * 逻辑固定为 overwrite —— 一律覆盖同名 ADD 命令,所以"新增/移除/保留"是唯一分类。
+ */
+function computeDiff(): UnitAssemblyDiff[] {
+  const rows: UnitAssemblyDiff[] = [];
+  const unitList = units.value;
+  for (const u of unitList) {
+    const b = sa.baselineForUnit(u.name);
+    const cur = assemblyMap.value[u.objectHandle] ?? [];
+    const curBt: string[] = [];
+    const curFsm: string[] = [];
+    for (const id of cur) {
+      const t = ws.trees.find((x) => x.treeId === id);
+      if (!t) continue;
+      const isFsm = (t.projectKind ?? "behavior_tree") === "state_machine";
+      (isFsm ? curFsm : curBt).push(t.treeName);
+    }
+    const btAdd = curBt.filter((n) => !b.bt.includes(n));
+    const btRm  = b.bt.filter((n) => !curBt.includes(n));
+    const btKeep = curBt.filter((n) => b.bt.includes(n));
+    const fsmAdd = curFsm.filter((n) => !b.fsm.includes(n));
+    const fsmRm  = b.fsm.filter((n) => !curFsm.includes(n));
+    const fsmKeep = curFsm.filter((n) => b.fsm.includes(n));
+    const changed = btAdd.length + btRm.length + fsmAdd.length + fsmRm.length > 0;
+    if (changed || btKeep.length + fsmKeep.length > 0) {
+      rows.push({
+        unitName: u.name,
+        bt: { add: btAdd, remove: btRm, keep: btKeep },
+        fsm: { add: fsmAdd, remove: fsmRm, keep: fsmKeep },
+        changed,
+      });
+    }
+  }
+  return rows;
+}
+
+/** overlay 状态:null=收起,非 null=展示 diff,等待用户 "确认覆盖" 或 "取消"。 */
+const pendingDiff = ref<UnitAssemblyDiff[] | null>(null);
+
+function beginAttach() {
+  if (!selScenario.value || !selUnit.value) { c.warning("publish", "未选场景/实体"); return; }
+  if (selectedTrees.value.length === 0) { c.warning("publish", "未勾选任何行为树/状态机"); return; }
+  if (totalErrors.value > 0) { c.warning("publish", `校验未通过:${totalErrors.value} 项`); return; }
+  pendingDiff.value = computeDiff();
+}
+function cancelAttach() { pendingDiff.value = null; }
+
+async function confirmAttach() {
+  if (!selScenario.value || !selUnit.value) return;
+  // Tauri-only:此处进来的一定是桌面 exe(App.vue 启动时已阻断非 Tauri 环境)。
   const u = selUnit.value;
   let currentSdata = sdataXml.value;
-  const written: { name: string; kind: "bt" | "sm"; path: string }[] = [];
+  const writtenTrees: WrittenTree[] = [];
   let gbbOutPath = "";
   const conflicts: string[] = [];
 
@@ -133,7 +184,7 @@ async function attach() {
       ? `${ws.modelRoot.replace(/[\\/]+$/, "")}/ModelDatabase/${subdir}/${t.treeName}.${ext}`
       : `${t.treeName}.${ext}`;
     const w = await writeArtifact(filePath, xml);
-    written.push({ name: t.treeName, kind: isFsm ? "sm" : "bt", path: w.path });
+    writtenTrees.push({ kind: isFsm ? "FSM" : "BT", name: t.treeName, absolutePath: w.path });
     if (globalBb && globalBb.includes("<Blackboard ")) {
       const gPath = ws.modelRoot
         ? `${ws.modelRoot.replace(/[\\/]+$/, "")}/ModelDatabase/global_black_boards.xml`
@@ -142,43 +193,39 @@ async function attach() {
       gbbOutPath = g.path;
     }
     const attachFn = isFsm ? attachOldScenarioStateMachine : attachOldScenario;
-    const out = attachFn(currentSdata, u.name, t.treeName, policy.value);
+    // 永远 overwrite —— 已挂同名树的实体,直接被新版替换
+    const out = attachFn(currentSdata, u.name, t.treeName, "overwrite");
     if (!out.ok) throw new Error(`${t.treeName}: ${out.message}`);
     if (out.conflict) conflicts.push(t.treeName);
     currentSdata = out.xml!;
   }
 
-  const w = await writeScenarioFile(selScenario.value.sdataPath, currentSdata, policy.value !== "overwrite");
-  sa.backupPath = w.backupPath ?? "";
+  const w = await writeScenarioFile(selScenario.value.sdataPath, currentSdata, false);
   sa.sdataXml = currentSdata;
+  // 覆盖成功后,把新 baseline 重扫一次让下一轮 diff 干净
+  sa.baseline = parseExistingBindings(currentSdata);
   sa.result = {
-    success: w.ok,
     scenario: selScenario.value.name,
     unit: u.name,
-    trees: written,
-    conflicts: conflicts.length ? conflicts : undefined,
-    sdataPath: w.path,
-    backupPath: backupPath.value || "(overwrite 无备份)",
-    globalBlackboards: gbbOutPath || "(无全局黑板)",
-    rollbackApplied: false,
-    message: `组装完成:${u.name} 挂载 ${written.length} 棵(BT/FSM)${conflicts.length ? ` · ${conflicts.length} 冲突已替换` : ""}` + (w.viaDownload ? "(浏览器下载)" : ""),
+    scenarioPath: w.path,
+    globalBlackboardPath: gbbOutPath || undefined,
+    writtenTrees,
+    conflicts,
+    message: `组装完成:${u.name} 覆盖 ${writtenTrees.length} 棵${conflicts.length ? ` · 替换 ${conflicts.length} 条同名` : ""}`,
   };
-  c.success("publish", `组装完成:${u.name} × ${written.length} 棵行为树/状态机`);
-  // 结果出来后自动滚到结果区
+  pendingDiff.value = null;
+  c.success("publish", `覆盖完成:${u.name} × ${writtenTrees.length} 棵`);
   await nextTick();
   const el = pageRoot.value?.querySelector<HTMLElement>("[data-anchor='result']");
   el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
 }
 
-async function rollback() {
-  if (!backupPath.value || !selScenario.value) throw new Error("无备份");
-  const bak = await readPathText(backupPath.value);
-  if (bak) {
-    await writeScenarioFile(selScenario.value.sdataPath, bak, false);
-    sa.result = { ...(sa.result ?? {}), rollbackApplied: true };
-    c.warning("publish", `已回滚 ${backupPath.value}`);
-  } else {
-    c.warning("publish", "浏览器模式无法读取备份,请手动恢复");
+async function copyPath(p: string) {
+  try {
+    await navigator.clipboard.writeText(p);
+    c.info("publish", `已复制:${p}`);
+  } catch {
+    c.warning("publish", "剪贴板不可用");
   }
 }
 
@@ -207,13 +254,8 @@ function validationForTree(treeId: string) {
       <span class="muted-2">选实体 → 勾选多棵行为树/状态机 → 批量校验 → 一次写回</span>
       <span class="spacer" />
       <ActionButton label="扫描想定" @run="scan" />
-      <select class="select narrow" :value="policy" @change="policy = ($event.target as HTMLSelectElement).value as AttachPolicy" title="同名 ADD 命令的处理">
-        <option value="reject">已存在则拒绝</option>
-        <option value="overwrite">直接覆盖</option>
-        <option value="backup_then_overwrite">备份后覆盖</option>
-      </select>
-      <ActionButton label="批量写回" :primary="true" :disabled="!canAttach" confirm="将写回想定与所选行为树/状态机,确认?" @run="attach" />
-      <ActionButton label="回滚" danger :disabled="!backupPath" @run="rollback" />
+      <span class="policy-hint" title="覆盖式挂接:同名 ADD 命令一律替换,写盘前会先展示与已挂载版本的差异">覆盖式挂接</span>
+      <ActionButton label="预览差异并覆盖" :primary="true" :disabled="!canAttach" @run="beginAttach" />
     </div>
 
     <div class="grid">
@@ -425,6 +467,51 @@ function validationForTree(treeId: string) {
           </div>
         </details>
 
+        <details class="fold" open v-if="pendingDiff !== null" data-anchor="diff">
+          <summary class="fold-t">
+            <span class="chev">▾</span>
+            <span class="tt">覆盖预览 · 挂接差异</span>
+            <span class="tag warn">待确认</span>
+          </summary>
+          <div class="fold-b">
+            <div class="diff-hd row">
+              <span class="muted-2">baseline(.sdata) → 覆盖后(勾选)</span>
+              <span class="spacer" />
+              <button class="btn tiny" @click="cancelAttach">取消</button>
+              <button class="btn tiny primary" @click="confirmAttach">确认覆盖</button>
+            </div>
+            <div class="diff-body">
+              <div v-if="pendingDiff.length === 0" class="muted-2 empty">没有变化 —— 勾选和 baseline 一致</div>
+              <table v-else class="diff-tbl">
+                <thead>
+                  <tr>
+                    <th style="width:22%">实体</th>
+                    <th style="width:39%">BT 变化</th>
+                    <th style="width:39%">FSM 变化</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="row in pendingDiff" :key="row.unitName" :class="{ nc: !row.changed }">
+                    <td class="u-name">{{ row.unitName }}<span v-if="!row.changed" class="mini-tag">未变</span></td>
+                    <td class="d-cell">
+                      <span v-for="n in row.bt.add"    :key="'a'+n" class="d-chip add">+ {{ n }}</span>
+                      <span v-for="n in row.bt.remove" :key="'r'+n" class="d-chip rm">− {{ n }}</span>
+                      <span v-for="n in row.bt.keep"   :key="'k'+n" class="d-chip keep">= {{ n }}</span>
+                      <span v-if="!row.bt.add.length && !row.bt.remove.length && !row.bt.keep.length" class="muted-2 mini">—</span>
+                    </td>
+                    <td class="d-cell">
+                      <span v-for="n in row.fsm.add"    :key="'fa'+n" class="d-chip add">+ {{ n }}</span>
+                      <span v-for="n in row.fsm.remove" :key="'fr'+n" class="d-chip rm">− {{ n }}</span>
+                      <span v-for="n in row.fsm.keep"   :key="'fk'+n" class="d-chip keep">= {{ n }}</span>
+                      <span v-if="!row.fsm.add.length && !row.fsm.remove.length && !row.fsm.keep.length" class="muted-2 mini">—</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </details>
+
         <details class="fold" open data-anchor="result">
           <summary class="fold-t">
             <span class="chev">▾</span>
@@ -432,8 +519,56 @@ function validationForTree(treeId: string) {
             <span class="tag success" v-if="result">已完成</span>
           </summary>
           <div class="fold-b">
-            <pre v-if="result" class="mono res">{{ JSON.stringify(result, null, 2) }}</pre>
-            <div v-else class="muted-2 empty">写回后显示</div>
+            <div v-if="!result" class="muted-2 empty">写回后显示</div>
+            <div v-else class="res-card">
+              <div class="res-msg">{{ result.message }}</div>
+              <div class="res-group">
+                <div class="res-lbl">写入的 BT XML ({{ result.writtenTrees.filter((t) => t.kind === 'BT').length }})</div>
+                <div v-for="t in result.writtenTrees.filter((x) => x.kind === 'BT')" :key="'b'+t.name" class="res-row">
+                  <span class="res-badge bt">BT</span>
+                  <span class="res-name">{{ t.name }}.bt</span>
+                  <span class="res-arrow">→</span>
+                  <code class="res-path" :title="t.absolutePath">{{ t.absolutePath }}</code>
+                  <button class="btn tiny" @click="copyPath(t.absolutePath)" title="复制路径">⧉</button>
+                </div>
+              </div>
+              <div class="res-group" v-if="result.writtenTrees.some((x) => x.kind === 'FSM')">
+                <div class="res-lbl">写入的 FSM XML ({{ result.writtenTrees.filter((t) => t.kind === 'FSM').length }})</div>
+                <div v-for="t in result.writtenTrees.filter((x) => x.kind === 'FSM')" :key="'f'+t.name" class="res-row">
+                  <span class="res-badge fsm">FSM</span>
+                  <span class="res-name">{{ t.name }}.sm</span>
+                  <span class="res-arrow">→</span>
+                  <code class="res-path" :title="t.absolutePath">{{ t.absolutePath }}</code>
+                  <button class="btn tiny" @click="copyPath(t.absolutePath)" title="复制路径">⧉</button>
+                </div>
+              </div>
+              <div class="res-group">
+                <div class="res-lbl">写回的 .sdata</div>
+                <div class="res-row">
+                  <span class="res-badge sdata">SD</span>
+                  <span class="res-name">{{ result.scenario }}</span>
+                  <span class="res-arrow">→</span>
+                  <code class="res-path" :title="result.scenarioPath">{{ result.scenarioPath }}</code>
+                  <button class="btn tiny" @click="copyPath(result.scenarioPath)" title="复制路径">⧉</button>
+                </div>
+              </div>
+              <div class="res-group" v-if="result.globalBlackboardPath">
+                <div class="res-lbl">全局黑板</div>
+                <div class="res-row">
+                  <span class="res-badge gbb">GB</span>
+                  <span class="res-name">global_black_boards.xml</span>
+                  <span class="res-arrow">→</span>
+                  <code class="res-path" :title="result.globalBlackboardPath">{{ result.globalBlackboardPath }}</code>
+                  <button class="btn tiny" @click="copyPath(result.globalBlackboardPath!)" title="复制路径">⧉</button>
+                </div>
+              </div>
+              <div class="res-group" v-if="result.conflicts.length">
+                <div class="res-lbl">替换的同名条目 ({{ result.conflicts.length }})</div>
+                <div class="res-chips">
+                  <span v-for="n in result.conflicts" :key="n" class="d-chip rm">{{ n }}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </details>
       </div>
@@ -639,8 +774,56 @@ function validationForTree(treeId: string) {
 .shelf-item.on { background: var(--accent-soft); border-color: var(--accent-border); }
 .shelf-item .cnt { margin-left: auto; font-size: 11px; }
 
-/* 结果 */
-.res { margin: 0; white-space: pre-wrap; font-size: 11.5px; background: var(--surface-3); padding: 8px; border-radius: 6px; max-height: 320px; overflow: auto; }
+/* 覆盖式挂接:工具栏文案标签 */
+.policy-hint { font-size: 11.5px; color: var(--text-secondary); padding: 3px 8px; border-radius: 10px; background: var(--surface-3); }
+
+/* 差异覆盖预览 */
+.diff-hd { padding: 4px 0 8px; }
+.diff-body { padding: 4px 0; }
+.diff-tbl { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 12px; }
+.diff-tbl th { text-align: left; padding: 6px 8px; font-weight: 600; color: var(--text-secondary); border-bottom: 1px solid var(--border-subtle); font-size: 11.5px; background: var(--surface-2); }
+.diff-tbl td { padding: 6px 8px; border-bottom: 1px solid var(--border-subtle); vertical-align: top; }
+.diff-tbl tr.nc td { opacity: 0.55; }
+.u-name { font-weight: 600; color: var(--text-primary); }
+.mini-tag { margin-left: 6px; font-size: 10px; color: var(--text-tertiary); font-weight: normal; }
+.d-cell { line-height: 1.9; }
+.d-chip {
+  display: inline-block; padding: 2px 8px; margin: 1px 3px 1px 0; border-radius: 10px;
+  font-size: 11px; font-family: ui-monospace, "SF Mono", Consolas, monospace;
+  border: 1px solid transparent;
+}
+.d-chip.add  { background: rgba(76,175,80,0.13); color: #6dc36d; border-color: rgba(76,175,80,0.3); }
+.d-chip.rm   { background: var(--err-soft, rgba(224,86,86,0.13)); color: var(--err, #e05656); border-color: rgba(224,86,86,0.3); text-decoration: line-through; }
+.d-chip.keep { background: var(--surface-3); color: var(--text-secondary); }
+.mini { font-size: 11px; }
+
+/* 结果:结构化路径卡 */
+.res-card { display: flex; flex-direction: column; gap: 10px; padding: 4px 0; }
+.res-msg { font-size: 12.5px; color: var(--text-primary); font-weight: 600; padding: 4px 0; }
+.res-group { display: flex; flex-direction: column; gap: 4px; }
+.res-lbl { font-size: 11px; color: var(--text-secondary); font-weight: 600; letter-spacing: 0.02em; }
+.res-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; background: var(--surface-3); border-radius: 6px; font-size: 12px;
+}
+.res-badge {
+  font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+  min-width: 30px; text-align: center; flex: 0 0 auto;
+}
+.res-badge.bt { background: var(--accent-soft); color: var(--accent); }
+.res-badge.fsm { background: rgba(155,89,182,0.15); color: #b47dd8; }
+.res-badge.sdata { background: rgba(255,152,0,0.15); color: #d29244; }
+.res-badge.gbb { background: rgba(96,166,236,0.15); color: #60a6ec; }
+.res-name { font-weight: 600; color: var(--text-primary); flex: 0 0 auto; }
+.res-arrow { color: var(--text-tertiary); flex: 0 0 auto; }
+.res-path {
+  flex: 1; min-width: 0;
+  font-family: ui-monospace, "SF Mono", Consolas, monospace; font-size: 11px;
+  color: var(--text-secondary);
+  padding: 2px 6px; background: var(--surface-2); border-radius: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.res-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 0; }
 
 /* 工具 */
 .spacer { flex: 1; }

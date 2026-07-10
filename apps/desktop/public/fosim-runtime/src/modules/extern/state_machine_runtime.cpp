@@ -4,14 +4,12 @@
 #include "FZSimIO/FZSimDatabaseIO/IFZSimDatabaseIO.h"
 #include "FZSimIO/FZSimDatabaseExtentionIO/IFZSimDecisionEditorManagerIO.h"
 #include "FZSimIO/FZSimScenarioIO/IFZSimScenarioIO.h"
-#include "core/mal/fz_marg_base_impl.h"
-#include "core/runtime/fz_runtime_profiler.h"
-#include "models/mount_model/fz_mount_model_impl.h"
+#include "core/mal/cyber_marg_base_impl.h"
+#include "models/mount_model/cyber_mount_model_impl.h"
 #include "modules/extern/bt_status.h"
 #include "modules/extern/bt_xml_loader.h"
-#include "modules/runtime_script/fz_script_runtime.h"
-#include "modules/unit/fz_unit_impl.h"
-#include "modules/simulation/fz_entity_sim_impl.h"
+#include "modules/simulation/cyber_entity_sim_impl.h"
+#include "modules/unit/cyber_unit_impl.h"
 
 #include <algorithm>
 
@@ -50,7 +48,7 @@ namespace BT
             return input.type;
         }
 
-        bool BuildInputMal(const std::vector<InputBinding>& inputs, const StateMachineTask& task, FZMalImpl& mal)
+        bool BuildInputMal(const std::vector<InputBinding>& inputs, const StateMachineTask& task, CyberMalImpl& mal)
         {
             for (const auto& input : inputs)
             {
@@ -62,7 +60,7 @@ namespace BT
             return true;
         }
 
-        bool HasMalValueNamed(FZMalImpl& mal, const std::string& name)
+        bool HasMalValueNamed(CyberMalImpl& mal, const std::string& name)
         {
             for (auto* marg : mal.GetMargList())
             {
@@ -74,12 +72,12 @@ namespace BT
             return false;
         }
 
-        bool HasAnyMalValue(FZMalImpl& mal)
+        bool HasAnyMalValue(CyberMalImpl& mal)
         {
             return !mal.GetMargList().empty();
         }
 
-        FZMalImpl* SelectEffectiveOutputMal(const std::vector<OutputBinding>& outputs, FZMalImpl& inputMal, FZMalImpl& outputMal)
+        CyberMalImpl* SelectEffectiveOutputMal(const std::vector<OutputBinding>& outputs, CyberMalImpl& inputMal, CyberMalImpl& outputMal)
         {
             for (const auto& output : outputs)
             {
@@ -101,7 +99,7 @@ namespace BT
             return HasAnyMalValue(outputMal) ? &outputMal : nullptr;
         }
 
-        bool WriteOutputs(const std::vector<OutputBinding>& outputs, FZMalImpl& sourceMal, StateMachineTask& task, AgentPtr agent)
+        bool WriteOutputs(const std::vector<OutputBinding>& outputs, CyberMalImpl& sourceMal, StateMachineTask& task, AgentPtr agent)
         {
             for (const auto& output : outputs)
             {
@@ -162,13 +160,20 @@ namespace BT
             return {};
         }
 
+        // 旧版决策函数只挂在 Cognition 上，mounted models 里可能混有 Equipment，先下行转换再查找。
+        FZDecisionProprity* FindDecisionFunction(CyberMountModelImpl* model, const char* functionName, std::string& launchName)
+        {
+            auto* cognition = dynamic_cast<CyberCognitionImpl*>(model);
+            return cognition ? cognition->GetDecisionFunctionByName(functionName, launchName) : nullptr;
+        }
+
         bool BindUniqueDecision(AgentPtr agent,
-                                const std::vector<FZMountModelImpl*>& models,
+                                const std::vector<CyberMountModelImpl*>& models,
                                 const std::string& functionName,
                                 const bool reportAmbiguous,
                                 DecisionRuntime& runtime)
         {
-            FZMountModelImpl* matched_model = nullptr;
+            CyberMountModelImpl* matched_model = nullptr;
             FZDecisionProprity* matched_proprity = nullptr;
             std::string matched_launch_name;
             int match_count = 0;
@@ -179,7 +184,7 @@ namespace BT
                 {
                     continue;
                 }
-                if (auto* proprity = model->GetDecisionFunctionByName(functionName.c_str(), launch_name))
+                if (auto* proprity = FindDecisionFunction(model, functionName.c_str(), launch_name))
                 {
                     matched_model = model;
                     matched_proprity = proprity;
@@ -227,27 +232,6 @@ namespace BT
             return BindUniqueDecision(agent, agent->GetMountedModels(), functionName, true, runtime);
         }
 
-        FZMountModelImpl* ResolveScriptComponent(AgentPtr agent, const ModelSelector& target)
-        {
-            if (!agent)
-            {
-                return nullptr;
-            }
-            if (HasExplicitSelector(target))
-            {
-                auto models = agent->GetMountedModels(target);
-                if (models.size() == 1)
-                {
-                    return models.front();
-                }
-            }
-            if (auto* root_model = agent->GetModel())
-            {
-                return root_model;
-            }
-            auto models = agent->GetMountedModels();
-            return models.size() == 1 ? models.front() : nullptr;
-        }
     }
 
     StateMachineTask::StateMachineTask(StateMachineDefPtr def)
@@ -302,35 +286,16 @@ namespace BT
             return result;
         }
 
-        if (!currentState_->functionScript.empty() || !currentState_->scriptRef.empty())
-        {
-            FZScript::ExecuteRequest request;
-            request.scriptText = currentState_->functionScript;
-            request.scriptFile = currentState_->scriptRef;
-            request.simGlobal = agent ? agent->GetSimGlobal() : nullptr;
-            request.currentUnit = agent ? agent->GetUnit() : nullptr;
-            request.currentComponent = ResolveScriptComponent(agent, currentState_->target);
-            const auto script_result = FZScript::ExecuteScript(request);
-            result.status = script_result.success ? FZDecisionResult::Success : FZDecisionResult::Error;
-            if (!script_result.success && agent)
-            {
-                agent->LogError(("StateMachine state script failed: " + script_result.message).c_str());
-            }
-        }
-        else
-        {
-            result.status = ExecuteDecision(agent,
-                                            currentState_->functionName,
-                                            currentState_->target,
-                                            currentState_->inputs,
-                                            currentState_->outputs,
-                                            "StateMachine state execute failed");
-        }
+        result.status = ExecuteDecision(agent,
+                                        currentState_->functionName,
+                                        currentState_->target,
+                                        currentState_->inputs,
+                                        currentState_->outputs,
+                                        "StateMachine state execute failed");
         if (agent)
         {
             agent->NotifyBehavior(MakeStateLabel(*currentState_), ComponentLabel(currentState_->target), FZ_BEHAVIOR_EVENT_STATE_EXECUTE);
         }
-        FZRuntimeProfiler::Instance().AddBtNodeExecuted();
         if (result.status == FZDecisionResult::Error)
         {
             return result;
@@ -349,7 +314,6 @@ namespace BT
             if (tree_iter != treeTasksByStateId_.end() && tree_iter->second)
             {
                 const BTStatus tree_status = tree_iter->second->Tick(agent);
-                FZRuntimeProfiler::Instance().AddSubTreeExecuted();
                 if (tree_status == BTStatus::Failure)
                 {
                     result.status = FZDecisionResult::Error;
@@ -360,33 +324,12 @@ namespace BT
 
         for (const auto& transition : currentState_->transitions)
         {
-            FZDecisionResult transition_result = FZDecisionResult::Error;
-            if (!transition.conditionScript.empty() || !transition.scriptRef.empty())
-            {
-                FZScript::ExecuteRequest request;
-                request.scriptText = transition.conditionScript;
-                request.scriptFile = transition.scriptRef;
-                request.simGlobal = agent ? agent->GetSimGlobal() : nullptr;
-                request.currentUnit = agent ? agent->GetUnit() : nullptr;
-                request.currentComponent = ResolveScriptComponent(agent, transition.target);
-                const auto script_result = FZScript::ExecuteScript(request);
-                transition_result = script_result.success
-                    ? (script_result.returnValue.IsTruthy() ? FZDecisionResult::Success : FZDecisionResult::Failure)
-                    : FZDecisionResult::Error;
-                if (!script_result.success && agent)
-                {
-                    agent->LogError(("StateMachine transition script failed: " + script_result.message).c_str());
-                }
-            }
-            else
-            {
-                transition_result = ExecuteDecision(agent,
-                                                    transition.functionName,
-                                                    transition.target,
-                                                    transition.inputs,
-                                                    transition.outputs,
-                                                    "StateMachine transition execute failed");
-            }
+            FZDecisionResult transition_result = ExecuteDecision(agent,
+                                                                transition.functionName,
+                                                                transition.target,
+                                                                transition.inputs,
+                                                                transition.outputs,
+                                                                "StateMachine transition execute failed");
             if (transition_result == FZDecisionResult::Success)
             {
                 if (!transition.behaviorTreeName.empty())
@@ -401,7 +344,6 @@ namespace BT
                     {
                         transition_tree_iter->second->Reset();
                         const BTStatus tree_status = transition_tree_iter->second->Tick(agent);
-                        FZRuntimeProfiler::Instance().AddSubTreeExecuted();
                         if (tree_status == BTStatus::Failure)
                         {
                             result.status = FZDecisionResult::Error;
@@ -415,7 +357,6 @@ namespace BT
                                            ComponentLabel(transition.target),
                                            transition.targetIsGoto ? FZ_BEHAVIOR_EVENT_GOTO : FZ_BEHAVIOR_EVENT_TRANSITION_HIT);
                 }
-                FZRuntimeProfiler::Instance().AddStateMachineTransition();
                 auto next_state_iter = def_->statesById.find(transition.targetStateId);
                 if (next_state_iter == def_->statesById.end())
                 {
@@ -697,7 +638,7 @@ namespace BT
             return FZDecisionResult::Error;
         }
 
-        FZMalImpl input_mal;
+        CyberMalImpl input_mal;
         if (!BuildInputMal(inputs, *this, input_mal))
         {
             if (agent)
@@ -707,9 +648,9 @@ namespace BT
             return FZDecisionResult::Error;
         }
 
-        FZMalImpl output_mal;
+        CyberMalImpl output_mal;
         const auto result = ToDecisionResult((runtime.model->*CastTo(runtime.proprity->func_ptr))(&input_mal, &output_mal));
-        FZMalImpl* effective_output_mal = SelectEffectiveOutputMal(outputs, input_mal, output_mal);
+        CyberMalImpl* effective_output_mal = SelectEffectiveOutputMal(outputs, input_mal, output_mal);
         if (effective_output_mal != nullptr)
         {
             WriteOutputs(outputs, *effective_output_mal, *this, agent);

@@ -1,11 +1,11 @@
 ﻿#include "modules/extern/agent.h"
 #include "core/logging/runtime_summary_log.h"
-#include "core/inter/fz_public_decision_inter_router_impl.h"
-#include "models/equipment/fz_equipment_impl.h"
-#include "modules/manager/fz_concrete_entity_manager_impl.h"
-#include "modules/manager/fz_entity_manager_impl.h"
-#include "modules/simulation/fz_entity_sim_impl.h"
-#include "modules/unit/fz_unit_impl.h"
+#include "core/inter/cyber_public_decision_inter_router_impl.h"
+#include "models/equipment/cyber_equipment_impl.h"
+#include "modules/manager/cyber_concrete_entity_manager_impl.h"
+#include "modules/manager/cyber_entity_manager_impl.h"
+#include "modules/simulation/cyber_entity_sim_impl.h"
+#include "modules/unit/cyber_unit_impl.h"
 #include <cstdio>
 #include <sstream>
 
@@ -32,7 +32,7 @@ namespace BT
             return lhs != nullptr && rhs == lhs;
         }
 
-        bool ModelTypeMatches(FZMountModelImpl* model, const std::string& modelType)
+        bool ModelTypeMatches(CyberMountModelImpl* model, const std::string& modelType)
         {
             if (!model || modelType.empty())
             {
@@ -98,16 +98,13 @@ namespace BT
             return selector.componentType.empty() ? selector.modelType : selector.componentType;
         }
 
-        bool MatchesModelSelector(FZMountModelImpl* model, const ModelSelector& selector)
+        bool MatchesModelSelector(CyberMountModelImpl* model, const ModelSelector& selector)
         {
             if (!model)
             {
                 return false;
             }
-            if (!selector.componentId.empty() && model->GetComponentUUID() != selector.componentId)
-            {
-                return false;
-            }
+            // 旧版无 GetComponentUUID，componentId 维度无法精确匹配，按其它维度过滤。
             const auto& componentType = SelectorComponentType(selector);
             const auto& componentName = SelectorComponentName(selector);
             const auto& componentClass = SelectorComponentClass(selector);
@@ -115,11 +112,7 @@ namespace BT
             {
                 return false;
             }
-            // componentId 是 Unit 内装配实例的稳定身份。新格式 XML 可同时带
-            // mdataName 作为显示/旧工具字段；当 componentId 已命中时，不再用
-            // mdataName 继续过滤，避免“模板显示名”和“运行态装配名”不一致导致误拒。
-            if (selector.componentId.empty() &&
-                !componentName.empty() &&
+            if (!componentName.empty() &&
                 !EqualsCString(model->GetEntityName(), componentName) &&
                 model->GetAliasName() != componentName)
             {
@@ -127,8 +120,8 @@ namespace BT
             }
             if (!componentClass.empty() &&
                 !EqualsCString(model->GetClassName(), componentClass) &&
-                model->IsClass(componentClass) != FZ_TRUE &&
-                model->SupportsInterface(componentClass) != FZ_TRUE)
+                model->IsClass(componentClass) != CYBER_TRUE &&
+                model->SupportsInterface(componentClass) != CYBER_TRUE)
             {
                 return false;
             }
@@ -136,10 +129,10 @@ namespace BT
         }
     }
 
-    Agent::Agent(FZSimulateGlobalPtr sim_global, IFZUnit* unit_)
+    Agent::Agent(CyberSimulateGlobalPtr sim_global, ICyberUnit* unit_)
         : sim_global_(sim_global)
         , unit(unit_)
-        , shared_mal_(std::make_shared<FZMalImpl>())
+        , shared_mal_(std::make_shared<CyberMalImpl>())
     {
     }
 
@@ -155,12 +148,12 @@ namespace BT
         return name;
     }
 
-    IFZUnit* Agent::GetUnit()
+    ICyberUnit* Agent::GetUnit()
     {
         return unit;
     }
 
-    FZSimulateGlobalPtr Agent::GetSimGlobal() const
+    CyberSimulateGlobalPtr Agent::GetSimGlobal() const
     {
         return sim_global_;
     }
@@ -186,7 +179,7 @@ namespace BT
         return mask;
     }
 
-    FZDFMPFRC Agent::GetCurrentStatus() const
+    CyberDFMPFRC Agent::GetCurrentStatus() const
     {
         return current_status;
     }
@@ -206,6 +199,42 @@ namespace BT
         return cognition_name;
     }
 
+    Cognition* Agent::EmployCog(const char* cognition_name_)
+    {
+        if (!cognition_name_ || !unit)
+        {
+            return nullptr;
+        }
+        auto cog = unit->GetCognitionByName(cognition_name_);
+        if (cog)
+        {
+            return cog;
+        }
+        if (!sim_global_ || !sim_global_->component_mgr_)
+        {
+            return nullptr;
+        }
+        auto* component = sim_global_->component_mgr_->GetComponentByClassNameAndType(cognition_name_, "Cognition");
+        if (!component)
+        {
+            return nullptr;
+        }
+        CyberEntityImpl* model = component->CloneEntity(unit);
+        if (!model)
+        {
+            return nullptr;
+        }
+        this->cognition_name = cognition_name_;
+        model->SetSimulationGlobal(sim_global_);
+        model->SetEntityName(cognition_name_);
+        if (!unit->EmployModel(dynamic_cast<CyberMountModelImpl*>(model), false))
+        {
+            delete model;
+            return nullptr;
+        }
+        return dynamic_cast<Cognition*>(model);
+    }
+
     MalPtr Agent::GetSharedMalPtr()
     {
         return shared_mal_;
@@ -219,11 +248,9 @@ namespace BT
             return models;
         }
 
-        auto* unit_impl = dynamic_cast<FZUnitImpl*>(unit);
-        const auto cognition_snapshot = unit_impl ? std::vector<FZCognitionImpl*>() : unit->GetCognitionList();
-        const auto equipment_snapshot = unit_impl ? std::vector<FZEquipmentImpl*>() : unit->GetEquipmentList();
-        const auto& cognitions = unit_impl ? unit_impl->GetCognitionRefs() : cognition_snapshot;
-        const auto& equipments = unit_impl ? unit_impl->GetEquipmentRefs() : equipment_snapshot;
+        // 旧版 SafeVector 不提供 begin/end，统一用 get() 拿底层 std::vector 再遍历。
+        auto& cognitions = unit->GetCognitionList().get();
+        auto& equipments = unit->GetEquipmentList().get();
         models.reserve(cognitions.size() + equipments.size());
         for (auto* cognition : cognitions)
         {
@@ -245,66 +272,26 @@ namespace BT
 
         std::vector<MountModel*> Agent::GetMountedModels(const ModelSelector& selector) const
         {
+            // 旧版 concrete manager 无 ByComponentUUID/ByName/ByClass 索引接口，
+            // 统一退回全量装配快照 + selector 过滤的慢路径。
             std::vector<MountModel*> matches;
-            if (sim_global_ && sim_global_->concrete_mgr_ && unit)
+            for (auto* model : GetMountedModels())
             {
-                if (!selector.componentId.empty())
+                if (MatchesModelSelector(model, selector))
                 {
-                    if (auto* model = sim_global_->concrete_mgr_->GetMountedModelByComponentUUID(unit, selector.componentId))
-                    {
-                        if (MatchesModelSelector(model, selector))
-                        {
-                            matches.push_back(model);
-                        }
-                    }
-                    return matches;
+                    matches.push_back(model);
                 }
-                const auto& componentName = SelectorComponentName(selector);
-                const auto& componentClass = SelectorComponentClass(selector);
-            const auto& componentType = SelectorComponentType(selector);
-            if (!componentName.empty())
-            {
-                // 名称在 unit 内通常唯一，优先利用 concrete manager 索引加速。
-                if (auto* model = sim_global_->concrete_mgr_->GetMountedModelByName(unit, componentName))
-                {
-                    if (MatchesModelSelector(model, selector))
-                    {
-                        matches.push_back(model);
-                    }
-                }
-                return matches;
             }
-            if (!componentClass.empty())
-            {
-                // 类名可能匹配多个组件实例，需要继续按 selector 精确过滤。
-                auto classMatches = sim_global_->concrete_mgr_->GetMountedModelsByClass(unit, componentClass, componentType);
-                for (auto* model : classMatches)
-                {
-                    if (MatchesModelSelector(model, selector))
-                    {
-                        matches.push_back(model);
-                    }
-                }
-                return matches;
-            }
+            return matches;
         }
-        for (auto* model : GetMountedModels())
-        {
-            if (MatchesModelSelector(model, selector))
-            {
-                matches.push_back(model);
-            }
-        }
-        return matches;
-    }
 
-    FZDFMPFRC Agent::SycExecFZDecisionFunc(FZDecisionProprity* decision, FZMountModelImpl* model)
+    CyberDFMPFRC Agent::SycExecFZDecisionFunc(FZDecisionProprity* decision, CyberMountModelImpl* model)
     {
         if (model && decision && decision->func_ptr)
         {
             return (model->*CastTo(decision->func_ptr))(decision->mal, shared_mal_.get());
         }
-        return FZ_DFMPFRC_UNKNOWN;
+        return CYBER_DFMPFRC_UNKNOWN;
     }
 
 void Agent::NotifyBehavior(const std::string& id, const std::string& entity_name, int type)

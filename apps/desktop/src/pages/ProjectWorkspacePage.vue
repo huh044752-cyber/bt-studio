@@ -7,22 +7,13 @@ import ModalDialog from "@/components/common/ModalDialog.vue";
 import ExportSelectModal from "@/components/workspace/ExportSelectModal.vue";
 import { seedWorkspace } from "@/stores/seed";
 import {
-  downloadText,
   readTextFile,
   writeArtifact,
   writeProjectFiles,
   pickDirectory,
   pickSaveFilePath,
-  pickWritableDir,
-  writeFilesToDirHandle,
-  writeToCachedSaveFile,
-  hasCachedSaveFile,
-  clearCachedSaveFile,
-  browserHasSaveFilePicker,
   readModelCmpFiles,
   fetchBundledRuntime,
-  isTauri,
-  type FsDirHandle,
   type ScannedModelDir,
 } from "@/services/tauri";
 import ModelExtractPanel from "@/components/workspace/ModelExtractPanel.vue";
@@ -32,17 +23,6 @@ const ws = useWorkspaceStore();
 const c = useConsoleStore();
 
 const tab = ref<"overview" | "extract">("overview");
-
-/** 运行环境识别 —— 顶部环境条 + 各处兜底决策统一读这三个标志。 */
-const runMode = computed(() => {
-  if (isTauri()) return "tauri" as const;
-  if (browserHasSaveFilePicker()) return "browser-fs" as const;
-  return "browser-basic" as const;
-});
-const WS_SAVE_TAG = "workspace-xml";
-
-// 浏览器:已选的可写导出目录句柄(用它把生成代码真正写进该文件夹,而非下载)。
-const exportDirHandle = ref<FsDirHandle | null>(null);
 
 // 导出选择对话框:用户勾选哪些 BT/FSM 包含进本次导出。
 const exportSelectOpen = ref(false);
@@ -58,12 +38,9 @@ const helpOpen = ref(false);
 const newCfg = ref<CfgForm>({ name: "workspace", modelRoot: "", exportCodeDir: "", workspaceFilePath: "", cppNamespace: "btproj", language: "cpp" });
 const cfg = ref<CfgForm>({ name: "", modelRoot: "", exportCodeDir: "", workspaceFilePath: "", cppNamespace: "btproj", language: "cpp" });
 
-/** 浏览器选目录拿不到绝对路径,store 里记 "browser::<name>" 标记;UI 自行解码展示。 */
-const BROWSER_MARK = "browser::";
+/** Tauri-only:所有路径都是绝对路径,直接展示。 */
 function displayPath(raw: string): { text: string; isBrowserName: boolean } {
-  if (!raw) return { text: "", isBrowserName: false };
-  if (raw.startsWith(BROWSER_MARK)) return { text: raw.slice(BROWSER_MARK.length), isBrowserName: true };
-  return { text: raw, isBrowserName: false };
+  return { text: raw ?? "", isBrowserName: false };
 }
 const modelPath = computed(() => displayPath(ws.modelRoot));
 const exportPath = computed(() => displayPath(ws.exportCodeDir));
@@ -131,95 +108,47 @@ function reportIngest(root: string, r: ReturnType<typeof ingestScannedModel>): v
 /** 配置了模型目录即自动扫描并抽取到类型空间(无需再手动点"扫描/抽取")。 */
 async function autoScanModel() {
   if (!ws.modelRoot) return;
-  // 优先消费 pickModelDir 存下来的扫描结果(含 .cmp/.mui 完整字节流)。
-  // 浏览器模式全靠此路径 —— webkitdirectory 一次读完,不能再次拿到相同的文件句柄。
-  if (pendingModel.value && pendingModel.value.root === ws.modelRoot) {
-    const p = pendingModel.value;
-    pendingModel.value = null;
-    if (p.contents.length) {
-      const r = ingestScannedModel(p);
-      reportIngest(p.root, r);
-      tab.value = "overview";
-    } else {
-      c.warning("import", `所选目录无 .cmp:${p.root}`);
-    }
-    return;
-  }
-  // 无 pendingModel 且是浏览器记号目录(通常是从最近工作空间重开):无法用绝对路径重扫。
-  if (ws.modelRoot.startsWith(BROWSER_MARK)) {
-    c.warning("import", "浏览器模式无法用记号目录重扫,请在「模型类型抽取」页重新选择目录");
-    return;
-  }
-  // Tauri:根据绝对路径重新扫描 + ingest。
   const res = await readModelCmpFiles(ws.modelRoot);
-  if (res && res.contents.length) {
+  if (res.contents.length) {
     const r = ingestScannedModel(res);
     reportIngest(res.root, r);
     tab.value = "overview";
-  } else if (res) {
+  } else {
     c.warning("import", `模型目录无 .cmp:${res.root}`);
   }
 }
 
 async function pickModelDir(target: "new" | "cfg") {
   const setVal = (v: string) => { if (target === "new") newCfg.value.modelRoot = v; else cfg.value.modelRoot = v; };
-  if (isTauri()) {
-    const cur = target === "new" ? newCfg.value.modelRoot : cfg.value.modelRoot;
-    const native = await pickDirectory(cur);
-    if (!native) return;
-    setVal(native);
-    pendingModel.value = null;
-    return;
-  }
-  const res = await readModelCmpFiles();
-  if (!res) return;
-  // 浏览器:文件夹"名"加 browser:: 前缀,避免冒充绝对路径。
-  // 保留完整扫描结果(files+muiFiles),autoScanModel 拿到后走 ingest → 自动抽取。
-  const markedRoot = `${BROWSER_MARK}${res.root}`;
-  setVal(markedRoot);
-  pendingModel.value = { ...res, root: markedRoot };
-  c.info("import", `已选目录 ${res.root}:${res.contents.length} 个 .cmp(确定即抽取)`);
+  const cur = target === "new" ? newCfg.value.modelRoot : cfg.value.modelRoot;
+  const native = await pickDirectory(cur);
+  if (!native) return;
+  setVal(native);
+  pendingModel.value = null;
 }
 
-/**
- * 弹"另存为"对话框选"工作空间文件保存路径"(.workspace.xml)。
- * 三种运行模式的表现:
- *   - Tauri:原生对话框,拿到绝对路径写回表单
- *   - 浏览器(Chromium):File System Access API 弹原生对话框,拿到 FileHandle 缓存,展示 "browser::文件名"
- *   - 浏览器(不支持 showSaveFilePicker,如 Firefox/Safari):console 提示手动填,不静默失败
- * 用户"选完就没反应"的历史根因:之前浏览器分支直接返回 null,现在改成真的弹框。
- */
+/** 弹原生"另存为"对话框选"工作空间文件保存路径"(.workspace.xml),拿到绝对路径写回表单。 */
 async function pickWorkspaceFile(target: "new" | "cfg") {
   const form = target === "new" ? newCfg.value : cfg.value;
   const wsName = (form.name.trim() || ws.workspaceName || "workspace");
   const defaultName = `${wsName}.workspace.xml`;
-  // 默认目录:已填的路径的父目录 → 模型目录父目录 → 模型目录本身。仅 Tauri 有效,浏览器忽略。
+  // 默认目录:已填的路径的父目录 → 模型目录父目录 → 模型目录本身。
   const rawPath = form.workspaceFilePath?.trim() ?? "";
   let defaultDir: string | undefined;
-  if (rawPath && !rawPath.startsWith(BROWSER_MARK)) {
+  if (rawPath) {
     const idx = Math.max(rawPath.lastIndexOf("/"), rawPath.lastIndexOf("\\"));
     if (idx > 0) defaultDir = rawPath.slice(0, idx);
   }
-  if (!defaultDir && form.modelRoot && !form.modelRoot.startsWith(BROWSER_MARK)) {
+  if (!defaultDir && form.modelRoot) {
     defaultDir = deriveDefaultSaveDir(form.modelRoot) ?? form.modelRoot;
   }
-
-  // 浏览器路径重新选:清掉旧句柄,避免"重选却仍写到老文件"。
-  if (runMode.value !== "tauri") clearCachedSaveFile(WS_SAVE_TAG);
-
   const picked = await pickSaveFilePath(defaultName, {
     defaultDir,
     filters: [{ name: "工作空间 XML", extensions: ["xml"] }],
-    saveFileTag: WS_SAVE_TAG,
   });
   if (picked) {
     form.workspaceFilePath = picked;
-    c.info("workspace", `已选择保存位置:${picked.replace(BROWSER_MARK, "")}`);
-    return;
-  }
-  // 用户取消或环境不支持:给一个清晰提示,不能沉默。
-  if (runMode.value === "browser-basic") {
-    c.warning("workspace", "当前浏览器不支持原生「另存为」(showSaveFilePicker)。请手动填写路径,或使用 Chrome/Edge/桌面版打开。");
+    c.info("workspace", `已选择保存位置:${picked}`);
   } else {
     c.info("workspace", "已取消选择保存位置");
   }
@@ -231,43 +160,29 @@ async function pickWorkspaceFileFromOverview() {
   const defaultName = `${wsName}.workspace.xml`;
   const rawPath = (ws.workspaceFilePath ?? "").trim();
   let defaultDir: string | undefined;
-  if (rawPath && !rawPath.startsWith(BROWSER_MARK)) {
+  if (rawPath) {
     const idx = Math.max(rawPath.lastIndexOf("/"), rawPath.lastIndexOf("\\"));
     if (idx > 0) defaultDir = rawPath.slice(0, idx);
   }
-  if (!defaultDir && ws.modelRoot && !ws.modelRoot.startsWith(BROWSER_MARK)) {
+  if (!defaultDir && ws.modelRoot) {
     defaultDir = deriveDefaultSaveDir(ws.modelRoot) ?? ws.modelRoot;
   }
-  if (runMode.value !== "tauri") clearCachedSaveFile(WS_SAVE_TAG);
   const picked = await pickSaveFilePath(defaultName, {
     defaultDir,
     filters: [{ name: "工作空间 XML", extensions: ["xml"] }],
-    saveFileTag: WS_SAVE_TAG,
   });
   if (picked) {
     ws.workspaceFilePath = picked;
-    c.success("workspace", `已选择保存位置:${picked.replace(BROWSER_MARK, "")}`);
-    return;
-  }
-  if (runMode.value === "browser-basic") {
-    c.warning("workspace", "当前浏览器不支持原生「另存为」。请使用 Chrome/Edge 或桌面版。");
+    c.success("workspace", `已选择保存位置:${picked}`);
   }
 }
 
 async function pickExportDir(target: "new" | "cfg") {
   const setVal = (v: string) => { if (target === "new") newCfg.value.exportCodeDir = v; else cfg.value.exportCodeDir = v; };
-  if (isTauri()) {
-    const cur = target === "new" ? newCfg.value.exportCodeDir : cfg.value.exportCodeDir;
-    const dir = await pickDirectory(cur);
-    if (!dir) return;
-    setVal(dir);
-    return;
-  }
-  const handle = await pickWritableDir();
-  if (!handle) { c.warning("export", "未选择目录"); return; }
-  exportDirHandle.value = handle;
-  setVal(`${BROWSER_MARK}${handle.name}`);
-  c.info("export", `已选导出目录(可写):${handle.name},生成时将直接写入(浏览器沙箱无法显示绝对路径)`);
+  const cur = target === "new" ? newCfg.value.exportCodeDir : cfg.value.exportCodeDir;
+  const dir = await pickDirectory(cur);
+  if (!dir) return;
+  setVal(dir);
 }
 
 /** 导出前置校验:有阻断错误则中止并提示(节点已暴红)。返回 true=可继续。 */
@@ -325,19 +240,11 @@ async function doExport(selectedTreeIds: string[]) {
 }
 
 /**
- * 保存工作空间 XML。按运行环境走不同路径,**不再默认下载**。
- *
- * Tauri:
+ * 保存工作空间 XML(Tauri 直写盘):
  *   1) workspaceFilePath 是完整 .xml → 直接原子写,不 confirm
  *   2) 是目录 → 补 <dir>/<name>.workspace.xml,confirm 一次并回写
  *   3) 未配置但有 modelRoot → 派生 <modelRoot 父>/<name>.workspace.xml,confirm 一次并回写
  *   4) 都无 → 弹原生"另存为"选路径,回写
- *
- * 浏览器(Chromium 系,支持 File System Access API):
- *   - 已缓存 FileHandle(用户在配置里点过"选择…"):直写该文件,不弹框
- *   - 未缓存:弹 showSaveFilePicker,拿到句柄写入并缓存
- * 浏览器(不支持的老浏览器):
- *   - 最后兜底 downloadText,并给出 warning 说明"你的浏览器不支持另存为"
  */
 async function exportWorkspaceXml(selectedTreeIds: string[]) {
   if (!ensureExportable()) return;
@@ -345,50 +252,18 @@ async function exportWorkspaceXml(selectedTreeIds: string[]) {
   const xml = ws.exportWorkspaceXml(ws.workspaceName, selectedTreeIds);
   const defaultName = `${ws.workspaceName}.workspace.xml`;
 
-  if (runMode.value !== "tauri") {
-    // 浏览器分支:先尝试缓存句柄,再尝试弹另存为,最后才下载。
-    const cached = await tryWriteCachedBrowser(xml);
-    if (cached) {
-      ws.workspaceFilePath = cached.path;
-      ws.rememberRecent(ws.workspaceName, xml);
-      c.success("export", `已保存工作空间(${totalTrees} 棵树)→ ${cached.path.replace(BROWSER_MARK, "")}`);
-      return;
-    }
-    if (runMode.value === "browser-fs") {
-      // 未缓存但支持:弹一次原生另存为,拿句柄再写。
-      const picked = await pickSaveFilePath(defaultName, {
-        filters: [{ name: "工作空间 XML", extensions: ["xml"] }],
-        saveFileTag: WS_SAVE_TAG,
-      });
-      if (!picked) { c.warning("export", "已取消保存"); return; }
-      const wrote = await writeToCachedSaveFile(WS_SAVE_TAG, xml);
-      if (wrote) {
-        ws.workspaceFilePath = wrote.path;
-        ws.rememberRecent(ws.workspaceName, xml);
-        c.success("export", `已保存工作空间(${totalTrees} 棵树)→ ${wrote.path.replace(BROWSER_MARK, "")}`);
-        return;
-      }
-    }
-    // 老浏览器兜底:下载。
-    downloadText(defaultName, xml, "application/xml");
-    ws.rememberRecent(ws.workspaceName, xml);
-    c.warning("export", `你的浏览器不支持原生「另存为」,已下载为 ${defaultName}。使用 Chrome/Edge 或桌面版可直接落盘到指定路径。`);
-    return;
-  }
-
-  // ---- Tauri 桌面端 ----
   const rawPath = (ws.workspaceFilePath ?? "").trim();
-  const isExplicitFile = rawPath && !rawPath.startsWith(BROWSER_MARK) && rawPath.toLowerCase().endsWith(".xml");
+  const isExplicitFile = rawPath && rawPath.toLowerCase().endsWith(".xml");
   let target = normalizeWorkspaceFileTarget(rawPath, defaultName);
   let derived = !isExplicitFile;
-  if (!target && ws.modelRoot && !ws.modelRoot.startsWith(BROWSER_MARK)) {
+  if (!target && ws.modelRoot) {
     const parent = deriveDefaultSaveDir(ws.modelRoot);
     if (parent) {
       target = `${parent.replace(/[\\/]+$/, "")}/${defaultName}`;
       derived = true;
     }
   }
-  // 全都无 → 直接弹原生另存为,拿到路径就直写(不再让用户先去配置再回来)。
+  // 全都无 → 直接弹原生另存为,拿到路径就直写。
   if (!target) {
     const picked = await pickSaveFilePath(defaultName, {
       filters: [{ name: "工作空间 XML", extensions: ["xml"] }],
@@ -411,36 +286,25 @@ async function exportWorkspaceXml(selectedTreeIds: string[]) {
   }
 }
 
-/** 浏览器:如已缓存 FileHandle,直接写文件返回;否则返回 null 让上游决定弹框。 */
-async function tryWriteCachedBrowser(xml: string): Promise<{ path: string } | null> {
-  if (!hasCachedSaveFile(WS_SAVE_TAG)) return null;
-  try {
-    return await writeToCachedSaveFile(WS_SAVE_TAG, xml);
-  } catch (e) {
-    c.error("export", `写入失败:${(e as Error).message}`);
-    return null;
-  }
-}
-
 /**
  * 用户在"工作空间文件"里可能填的是目录(如 F:/0411/ccc/FOSimEngine)而不是文件。
  * 规则:
  *   - 空 → 返回 undefined,由 caller 走派生。
- *   - 以 .xml / .workspace.xml 结尾 → 视为文件路径,原样返回(仅统一分隔符)。
+ *   - 以 .xml / .workspace.xml 结尾 → 视为文件路径,原样返回。
  *   - 否则视为目录:在末尾补 /<defaultName>,让 writeArtifact 真能落到具体文件。
  */
 function normalizeWorkspaceFileTarget(raw: string | undefined, defaultName: string): string | undefined {
   if (!raw) return undefined;
   const trimmed = raw.trim();
-  if (!trimmed || trimmed.startsWith(BROWSER_MARK)) return undefined;
+  if (!trimmed) return undefined;
   const lower = trimmed.toLowerCase();
   if (lower.endsWith(".xml")) return trimmed;
   return `${trimmed.replace(/[\\/]+$/, "")}/${defaultName}`;
 }
 
-/** 派生"另存为"默认目录:root 存在 → 取其父目录;否则空。浏览器记号目录不参与。 */
+/** 派生"另存为"默认目录:root 存在 → 取其父目录;否则空。 */
 function deriveDefaultSaveDir(root: string): string | undefined {
-  if (!root || root.startsWith(BROWSER_MARK)) return undefined;
+  if (!root) return undefined;
   const idx = Math.max(root.lastIndexOf("/"), root.lastIndexOf("\\"));
   return idx > 0 ? root.slice(0, idx) : root;
 }
@@ -449,32 +313,11 @@ async function genProject(selectedTreeIds: string[]) {
   if (!ensureCodegenable()) return;
   const projectFiles = ws.generateProjectFiles(selectedTreeIds);
   // 拉打包的真引擎 modules/extern + core/mal + pugi(路径已带 engine-core/ 前缀,不与 skeleton 冲突)。
-  // fetch 失败(浏览器离线/manifest 缺失)时返回 []:仍保底写出 skeleton 工程,不阻塞导出。
   const engineFiles = await fetchBundledRuntime().catch(() => [] as { path: string; content: string }[]);
   const files = [...projectFiles, ...engineFiles];
 
-  // 浏览器:已选可写目录句柄 → 直接写入该文件夹(不下载)。
-  if (!isTauri()) {
-    let handle = exportDirHandle.value;
-    if (!handle) {
-      handle = await pickWritableDir();
-      if (!handle) { c.warning("export", "未选择导出目录,已取消"); return; }
-      exportDirHandle.value = handle;
-      ws.exportCodeDir = `${BROWSER_MARK}${handle.name}`;
-    }
-    try {
-      const { written, preserved } = await writeFilesToDirHandle(handle, files);
-      c.success("export", `生成完整工程:写入 ${written} 个文件 → 文件夹「${handle.name}」${preserved ? `(合并 ${preserved} 个含用户代码的文件)` : ""}`);
-    } catch (e) {
-      c.warning("export", `写入目录失败:${(e as Error).message}`);
-    }
-    return;
-  }
-
-  // 桌面端:配置里已有绝对路径就直接写入(不再无故弹目录选择框 —— 用户填了就是想直接生成到那里)。
-  // 未配置(或为浏览器沙箱记号)才弹一次原生对话框选目录,选完回写。
-  const configured = ws.exportCodeDir && !ws.exportCodeDir.startsWith(BROWSER_MARK) ? ws.exportCodeDir : "";
-  let target = configured;
+  // 配置里已有绝对路径就直接写入;未配置才弹一次原生对话框选目录,选完回写。
+  let target = ws.exportCodeDir ?? "";
   if (!target) {
     const picked = await pickDirectory("");
     if (!picked) { c.warning("export", "未选择导出目录,已取消生成"); return; }
@@ -483,8 +326,7 @@ async function genProject(selectedTreeIds: string[]) {
     c.info("export", `已记住导出目录:${picked}(下次「生成 C++ 工程」直接写入)`);
   }
   const out = await writeProjectFiles(target, files);
-  const suffix = out.viaDownload ? "(浏览器逐个下载)" : "";
-  c.success("export", `已生成 C++ 工程(${files.length} 个文件)→ ${target}${suffix}`);
+  c.success("export", `已生成 C++ 工程(${out.count} 个文件)→ ${target}`);
 }
 
 /**
@@ -502,9 +344,9 @@ async function openWorkspace() {
   ws.importWorkspaceXml(f.content);
   if (f.path) ws.workspaceFilePath = f.path; // 桌面端拿到真实路径;浏览器沙箱无 path 保留 XML 里的记录
   ws.rememberRecent(ws.workspaceName, f.content);
-  if (ws.modelRoot && !ws.modelRoot.startsWith(BROWSER_MARK) && isTauri()) {
+  if (ws.modelRoot) {
     const res = await readModelCmpFiles(ws.modelRoot);
-    if (res && res.contents.length) {
+    if (res.contents.length) {
       const r = ingestScannedModel(res);
       reportIngest(res.root, r);
     }
@@ -589,14 +431,7 @@ const stats = computed(() => {
         <span class="dot" />
         <strong>工作空间</strong>
         <span class="ws-name" :title="ws.workspaceName">{{ ws.workspaceName }}</span>
-        <span class="env-chip" :class="'env-' + runMode"
-          :title="runMode === 'tauri'
-            ? 'Tauri 桌面端:所有选择/保存走原生对话框,写入绝对路径'
-            : runMode === 'browser-fs'
-              ? '浏览器(Chromium):点击「选择…」会弹原生「另存为」,保存 XML 直写到你选定的文件'
-              : '浏览器(不支持 File System Access):点击「保存 XML」会走下载,请改用 Chrome/Edge 或桌面版'">
-          {{ runMode === "tauri" ? "桌面端" : runMode === "browser-fs" ? "浏览器·可直写" : "浏览器·仅下载" }}
-        </span>
+        <span class="env-chip env-tauri" title="Tauri 桌面端:所有选择/保存走原生对话框,写入绝对路径">桌面端</span>
       </div>
       <span class="spacer" />
       <ActionButton label="新建" :primary="true" confirm="将清空当前工作空间,确认?" @run="openNew" />
@@ -1026,9 +861,7 @@ const stats = computed(() => {
         <section class="help-sec">
           <h3>② 三种运行环境</h3>
           <ul class="help-ul">
-            <li><span class="chip env-tauri">桌面端</span> Tauri 打包运行,所有选择/保存走原生对话框,写绝对路径。<strong>推荐生产使用。</strong></li>
-            <li><span class="chip env-browser-fs">浏览器·可直写</span> Chrome/Edge 下 <code>vite dev</code> 预览,通过 File System Access API 可原生"另存为"直写文件。</li>
-            <li><span class="chip env-browser-basic">浏览器·仅下载</span> 老浏览器(Firefox/Safari)无 FS API,只能下载到 <code>~/Downloads</code>;顶部有明确 warning。</li>
+            <li><span class="chip env-tauri">桌面端</span> Tauri 打包运行,所有选择/保存走原生对话框,写绝对路径。<strong>本项目 Tauri-only,浏览器预览已阻断。</strong></li>
           </ul>
           <p class="help-p">顶栏右侧的运行环境 chip 会实时展示当前处于哪种模式,鼠标悬停查看细节。</p>
         </section>
@@ -1122,8 +955,6 @@ ctest --test-dir build -C Release --output-on-failure   # 自动跑 tick_check</
   letter-spacing: 0.02em;
 }
 .env-tauri { color: var(--ok, #47d6a4); background: rgba(71,214,164,0.1); border-color: rgba(71,214,164,0.3); }
-.env-browser-fs { color: var(--accent, #5eb3ff); background: rgba(94,179,255,0.1); border-color: rgba(94,179,255,0.3); }
-.env-browser-basic { color: var(--warn, #f5b65c); background: rgba(245,182,92,0.1); border-color: rgba(245,182,92,0.3); }
 .spacer { flex: 1; }
 
 /* 选项卡 */
@@ -1465,6 +1296,4 @@ ctest --test-dir build -C Release --output-on-failure   # 自动跑 tick_check</
 }
 .help-doc .chip { margin-right: 4px; }
 .help-doc .chip.env-tauri { color: var(--ok, #47d6a4); background: rgba(71,214,164,0.12); border: 1px solid rgba(71,214,164,0.3); }
-.help-doc .chip.env-browser-fs { color: var(--accent, #5eb3ff); background: rgba(94,179,255,0.12); border: 1px solid rgba(94,179,255,0.3); }
-.help-doc .chip.env-browser-basic { color: var(--warn, #f5b65c); background: rgba(245,182,92,0.12); border: 1px solid rgba(245,182,92,0.3); }
 </style>

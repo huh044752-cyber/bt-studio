@@ -5,25 +5,25 @@ namespace BT
 {
     namespace
     {
-        FZDFMPFRC ToAgentFZStatus(BTStatus status)
+        CyberDFMPFRC ToAgentFZStatus(BTStatus status)
         {
             // 行为树根节点的 Failure 只是“本轮没有选中成功路径”，不是运行时错误。
-            // 只有空任务、解析失败等 Agent 显式设置的状态才进入 FZ_DFMPFRC_ERROR。
+            // 只有空任务、解析失败等 Agent 显式设置的状态才进入 CYBER_DFMPFRC_ERROR。
             switch (status)
             {
             case BTStatus::Success:
             case BTStatus::Failure:
-                return FZ_DFMPFRC_SINGLE;
+                return CYBER_DFMPFRC_SINGLE;
             case BTStatus::Running:
-                return FZ_DFMPFRC_CONTINUOUS;
+                return CYBER_DFMPFRC_CONTINUOUS;
             case BTStatus::Invalid:
             default:
-                return FZ_DFMPFRC_ERROR;
+                return CYBER_DFMPFRC_ERROR;
             }
         }
     }
 
-    BehaviorNodeAgent::BehaviorNodeAgent(FZSimulateGlobalPtr sim_global, IFZUnit* unit_)
+    BehaviorNodeAgent::BehaviorNodeAgent(CyberSimulateGlobalPtr sim_global, ICyberUnit* unit_)
         : Agent(sim_global, unit_)
     {
         agent_type = FZ_BEHAVIOR_AGENT_TYPE_TREE;
@@ -33,7 +33,7 @@ namespace BT
     {
         tree_task_.reset();
         tree_def_.reset();
-        current_status = FZ_DFMPFRC_ERROR;
+        current_status = CYBER_DFMPFRC_ERROR;
         sim_global_ = nullptr;
         shared_mal_.reset();
     }
@@ -50,14 +50,14 @@ namespace BT
             return;
         }
 
-        if (current_status != FZ_DFMPFRC_CONTINUOUS)
+        if (current_status != CYBER_DFMPFRC_CONTINUOUS)
         {
             return;
         }
 
         if (!tree_task_)
         {
-            current_status = FZ_DFMPFRC_ERROR;
+            current_status = CYBER_DFMPFRC_ERROR;
             return;
         }
         const EngineTimeStamp current_master_time = sim_global_ ? sim_global_->master_time_ : 0;
@@ -75,7 +75,7 @@ namespace BT
 
     void BehaviorNodeAgent::Reset()
     {
-        current_status = FZ_DFMPFRC_CONTINUOUS;
+        current_status = CYBER_DFMPFRC_CONTINUOUS;
         has_last_exec_master_time_ = false;
         last_exec_master_time_ = 0;
         if (tree_task_)
@@ -117,7 +117,7 @@ namespace BT
         // 到这里为止，Agent 已经拥有静态定义和该 unit 独享的运行态任务。
         // 真正逐帧推进仍需等待仿真主循环里的 ExecNode() 周期性调用。
         node_ = node;
-        current_status = FZ_DFMPFRC_CONTINUOUS;
+        current_status = CYBER_DFMPFRC_CONTINUOUS;
         has_last_exec_master_time_ = false;
         last_exec_master_time_ = 0;
         return true;

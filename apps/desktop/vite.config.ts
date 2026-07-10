@@ -9,7 +9,10 @@ export default defineConfig({
       "@": fileURLToPath(new URL("./src", import.meta.url)),
     },
   },
-  // Tauri 期望固定端口;预览/CI 可用 PORT 覆盖,避免端口占用阻塞。
+  // Tauri 生产 exe 用 tauri://localhost 协议加载 dist/index.html;资源必须走相对路径
+  // (./assets/*.js) 而不是绝对 /assets/*.js,否则会命中协议根 404 白屏。
+  base: "./",
+  // Tauri dev 用固定端口;预览/CI 可用 PORT 覆盖,避免端口占用阻塞。生产 exe 不用端口。
   server: { port: Number(process.env.PORT) || 5180, strictPort: false },
   build: {
     target: "es2022",

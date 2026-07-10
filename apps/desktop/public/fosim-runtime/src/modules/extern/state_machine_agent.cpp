@@ -4,7 +4,7 @@
 
 namespace BT
 {
-    StateMachineAgent::StateMachineAgent(FZSimulateGlobalPtr sim_global, IFZUnit* unit_)
+    StateMachineAgent::StateMachineAgent(CyberSimulateGlobalPtr sim_global, ICyberUnit* unit_)
         : Agent(sim_global, unit_)
     {
         agent_type = FZ_BEHAVIOR_AGENT_TYPE_STATE_MACHINE;
@@ -14,7 +14,7 @@ namespace BT
     {
         state_machine_task_.reset();
         state_machine_def_.reset();
-        current_status = FZ_DFMPFRC_ERROR;
+        current_status = CYBER_DFMPFRC_ERROR;
         sim_global_ = nullptr;
         shared_mal_.reset();
     }
@@ -40,7 +40,7 @@ namespace BT
         // - Task 是当前 unit 独享的运行态
         state_machine_task_.reset(new StateMachineTask(state_machine_def_));
         node_ = node;
-        current_status = FZ_DFMPFRC_CONTINUOUS;
+        current_status = CYBER_DFMPFRC_CONTINUOUS;
         has_last_exec_master_time_ = false;
         last_exec_master_time_ = 0;
         return true;
@@ -69,13 +69,13 @@ namespace BT
         {
             return;
         }
-        if (current_status != FZ_DFMPFRC_CONTINUOUS)
+        if (current_status != CYBER_DFMPFRC_CONTINUOUS)
         {
             return;
         }
         if (!state_machine_task_)
         {
-            current_status = FZ_DFMPFRC_ERROR;
+            current_status = CYBER_DFMPFRC_ERROR;
             return;
         }
         const EngineTimeStamp current_master_time = sim_global_ ? sim_global_->master_time_ : 0;
@@ -95,22 +95,22 @@ namespace BT
         switch (result.status)
         {
         case FZDecisionResult::Success:
-            current_status = FZ_DFMPFRC_SINGLE;
+            current_status = CYBER_DFMPFRC_SINGLE;
             break;
         case FZDecisionResult::Running:
-            current_status = FZ_DFMPFRC_CONTINUOUS;
+            current_status = CYBER_DFMPFRC_CONTINUOUS;
             break;
         case FZDecisionResult::Failure:
         case FZDecisionResult::Error:
         default:
-            current_status = FZ_DFMPFRC_ERROR;
+            current_status = CYBER_DFMPFRC_ERROR;
             break;
         }
     }
 
     void StateMachineAgent::Reset()
     {
-        current_status = FZ_DFMPFRC_CONTINUOUS;
+        current_status = CYBER_DFMPFRC_CONTINUOUS;
         has_last_exec_master_time_ = false;
         last_exec_master_time_ = 0;
         if (state_machine_task_)

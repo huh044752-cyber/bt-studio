@@ -113,7 +113,7 @@ function writeOutput(p: FunctionParam): string {
 /** runtime:Cyber 决策类型 + MAL(Get/Add 完整 API,对齐老引擎 cyber_enum_type.h + cyber_mal_impl.h)。自包含可独立编译。 */
 function cyberTypesHeader(_catalog: CatalogBundle): string {
   return `// 由 BT Studio 生成 —— 依赖库:Cyber 决策类型 + MAL(对齐 FOSim 老引擎 core/mal,无业务/实体)。
-// 接入真实引擎时,本文件由引擎 core/mal/fz_mal_impl.h 等替换,生成代码的 Get*/Add* 调用保持兼容。
+// 接入真实引擎时,本文件由引擎 core/mal/cyber_mal_impl.h 等替换,生成代码的 Get*/Add* 调用保持兼容。
 #pragma once
 #ifdef _MSC_VER
 // MSVC:成员函数指针默认按派生类继承层级取紧凑表示,与 __UnexistingClass::* 不兼容会触发 C2440。

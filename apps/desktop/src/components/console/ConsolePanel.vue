@@ -2,7 +2,7 @@
 import { computed } from "vue";
 import { useConsoleStore } from "@/stores/console";
 import { useWorkspaceStore } from "@/stores/workspace";
-import { downloadText } from "@/services/tauri";
+import { saveTextFile } from "@/services/tauri";
 import { useRouter } from "vue-router";
 import type { LogLevel } from "@btstudio/bt-core";
 
@@ -57,7 +57,7 @@ function jump(logId: string) {
       </button>
       <span class="spacer" />
       <button class="btn tiny" @click="c.markRead()">标为已读</button>
-      <button class="btn tiny" @click="downloadText('bt-studio-console.log', c.exportText())">下载日志</button>
+      <button class="btn tiny" @click="saveTextFile('bt-studio-console.log', c.exportText(), { filters: [{ name: '日志', extensions: ['log', 'txt'] }] })">导出日志</button>
       <button class="btn tiny danger" @click="c.clear()">清空</button>
     </div>
     <div v-show="!c.collapsed" class="console-body scroll">

@@ -40,7 +40,6 @@ async function scanModel() {
     return;
   }
   const res = await readModelCmpFiles(ws.modelRoot);
-  if (!res) return;
   if (res.contents.length === 0) { c.warning("import", `目录无 .cmp:${res.root}`); return; }
   // 老引擎分支:优先配对解析 .cmp + .mui(.mui 提供类元数据;.cmp 提供函数签名)
   if (res.muiFiles && res.muiFiles.length > 0) {

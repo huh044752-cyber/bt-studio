@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-#include "FOSim/Engine/fz_engine_type.h"
+#include "FOSim/Engine/cyber_enum_type.h"
 
 namespace BT
 {
@@ -12,7 +12,7 @@ namespace BT
         Running
     };
 
-    // 行为树内部统一消费强类型决策结果，不再在运行时到处直接判断旧 FZDFMPFRC 枚举。
+    // 行为树内部统一消费强类型决策结果，不再在运行时到处直接判断旧 CyberDFMPFRC 枚举。
     inline BTStatus ToBTStatus(FZDecisionResult status)
     {
         switch (status)
@@ -45,17 +45,17 @@ namespace BT
         }
     }
 
-    inline BTStatus ToBTStatus(FZDFMPFRC status)
+    inline BTStatus ToBTStatus(CyberDFMPFRC status)
     {
         return ToBTStatus(ToDecisionResult(status));
     }
 
-    // Agent 边界仍使用旧 FZDFMPFRC，因此保留一层显式回写转换。
-    inline FZDFMPFRC ToFZStatus(BTStatus status)
+    // Agent 边界仍使用旧 CyberDFMPFRC，因此保留一层显式回写转换。
+    inline CyberDFMPFRC ToFZStatus(BTStatus status)
     {
-        return status == BTStatus::Success ? FZ_DFMPFRC_SINGLE
-             : status == BTStatus::Running ? FZ_DFMPFRC_CONTINUOUS
-             : status == BTStatus::Failure ? FZ_DFMPFRC_ERROR
-             : FZ_DFMPFRC_UNKNOWN;
+        return status == BTStatus::Success ? CYBER_DFMPFRC_SINGLE
+             : status == BTStatus::Running ? CYBER_DFMPFRC_CONTINUOUS
+             : status == BTStatus::Failure ? CYBER_DFMPFRC_ERROR
+             : CYBER_DFMPFRC_UNKNOWN;
     }
 }

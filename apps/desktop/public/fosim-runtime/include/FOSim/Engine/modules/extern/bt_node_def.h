@@ -94,8 +94,6 @@ namespace BT
         std::string behaviorTreeTemplateId;
         std::string behaviorTreeInstanceId;
         std::string paramStates;
-        std::string script;
-        std::string scriptRef;
         BTNodeKind kind = BTNodeKind::Unknown;
         ModelSelector target;
         bool captureInputOnEnter = false;
