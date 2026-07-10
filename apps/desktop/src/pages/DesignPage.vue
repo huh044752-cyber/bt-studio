@@ -121,13 +121,24 @@ function paste() {
   else c.warning("canvas", "粘贴失败(检查父节点是否允许该子节点)");
 }
 
+const canvasDragOver = ref(false);
+function onDragOverCanvas(e: DragEvent) {
+  e.preventDefault();
+  canvasDragOver.value = true;
+}
+function onDragLeaveCanvas() { canvasDragOver.value = false; }
 function onDrop(e: DragEvent) {
   e.preventDefault();
+  canvasDragOver.value = false;
   const nodeType = e.dataTransfer?.getData("application/x-node-type");
   if (!nodeType) return;
   const graph = editor.graphRef.value;
   const p = graph ? graph.clientToLocal(e.clientX, e.clientY) : { x: 240, y: 240 };
-  ws.run({ kind: "AddNode", nodeType, x: p.x, y: p.y });
+  // 关键修:拖到画布不再造孤儿。优先挂选中节点,否则挂 Root。
+  // 若父不能收(容量满 / 类型规则不合),命令层会 fail —— 转达到 console 而非静默漏。
+  const parentNodeId = ws.selectedNodeId || ws.currentTree?.rootNodeId;
+  const res = ws.run({ kind: "AddNode", nodeType, parentNodeId, x: p.x, y: p.y });
+  if (!res?.ok) c.warning("canvas", `不能创建 ${nodeType}:${res?.reason ?? "未知原因"}`);
 }
 
 // 新建工程弹窗(行为树 / 状态机)
@@ -256,7 +267,14 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
     <div class="body">
       <!-- 中间画布 -->
       <div class="center col">
-        <div ref="canvasEl" class="canvas panel" @drop="onDrop" @dragover.prevent />
+        <div
+          ref="canvasEl"
+          class="canvas panel"
+          :class="{ 'drop-hot': canvasDragOver }"
+          @drop="onDrop"
+          @dragover="onDragOverCanvas"
+          @dragleave="onDragLeaveCanvas"
+        />
         <div v-if="problemsOpen" class="problems-strip panel">
           <ProblemsPanel />
         </div>
@@ -472,6 +490,13 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  transition: outline-color 0.15s ease, background 0.15s ease;
+  outline: 2px dashed transparent;
+  outline-offset: -6px;
+}
+.canvas.drop-hot {
+  outline-color: var(--accent, #5eb3ff);
+  background: var(--accent-soft, rgba(94, 179, 255, 0.06));
 }
 .problems-strip {
   height: 150px;

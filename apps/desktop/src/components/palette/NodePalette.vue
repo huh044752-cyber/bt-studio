@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from "vue";
-import { defaultRegistry } from "@btstudio/bt-core";
+import { defaultRegistry, validateConnectionRule } from "@btstudio/bt-core";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 const ws = useWorkspaceStore();
@@ -22,11 +22,48 @@ const showRoot = computed(() => {
 });
 const restricted = computed(() => defaultRegistry.listRestricted());
 
-function onDragStart(e: DragEvent, nodeType: string) {
-  e.dataTransfer?.setData("application/x-node-type", nodeType);
+/** 当前拖拽/双击的目标父节点(选中优先,否则 Root)。 */
+const targetParent = computed(() => {
+  void ws.rev;
+  const t = ws.currentTree;
+  if (!t) return null;
+  const id = ws.selectedNodeId || t.rootNodeId;
+  return t.nodes[id] ?? null;
+});
+const targetParentLabel = computed(() => {
+  const p = targetParent.value;
+  if (!p) return "(无当前树)";
+  const def = defaultRegistry.get(p.nodeType);
+  return `${def?.displayName ?? p.nodeType} · ${p.name}`;
+});
+
+/** 某类型能否作为 targetParent 的新子(容量 + 类型规则)。用于视觉预判。 */
+function acceptable(childType: string): { ok: boolean; reason?: string } {
+  const p = targetParent.value;
+  if (!p) return { ok: false, reason: "没有父节点(先选一个节点)" };
+  const def = defaultRegistry.get(p.nodeType);
+  if (!def || def.maxChildren <= 0) return { ok: false, reason: `${p.nodeType} 是叶子,不能挂子` };
+  if (p.childOrder.length >= def.maxChildren) {
+    return { ok: false, reason: `${def.displayName} 子已满(${def.maxChildren})` };
+  }
+  const kind = ws.currentTree?.projectKind ?? "behavior_tree";
+  const r = validateConnectionRule(p.nodeType, childType, kind);
+  if (!r.ok) return { ok: false, reason: r.reason };
+  return { ok: true };
 }
 
-/** 悬停提示:逻辑描述 + 端口描述(行为树 / 状态机统一,鼠标悬停显示)。 */
+function onDragStart(e: DragEvent, nodeType: string) {
+  const acc = acceptable(nodeType);
+  if (!acc.ok) {
+    // 主动阻断:避免"看似可拖但落地失败"。
+    e.preventDefault();
+    return;
+  }
+  e.dataTransfer?.setData("application/x-node-type", nodeType);
+  if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
+}
+
+/** 悬停提示:逻辑描述 + 端口描述 + 当前是否可挂到选中父。 */
 function tipFor(d: ReturnType<typeof defaultRegistry.get>): string {
   if (!d) return "";
   const lines: string[] = [`${d.displayName}(${d.nodeType})`];
@@ -39,10 +76,14 @@ function tipFor(d: ReturnType<typeof defaultRegistry.get>): string {
   const childInfo =
     d.maxChildren === 0 ? "叶子(无子节点)" : `子节点 ${d.minChildren}~${d.maxChildren}`;
   lines.push(`结构:${childInfo}`);
+  const acc = acceptable(d.nodeType);
+  lines.push(acc.ok ? `✓ 可挂到:${targetParentLabel.value}` : `✗ 不能挂到 ${targetParentLabel.value} — ${acc.reason}`);
   return lines.join("\n");
 }
 
 function addToSelected(nodeType: string) {
+  const acc = acceptable(nodeType);
+  if (!acc.ok) return;
   const sel = ws.selectedNodeId || ws.currentTree?.rootNodeId;
   ws.run({ kind: "AddNode", nodeType, parentNodeId: sel });
 }
@@ -60,6 +101,9 @@ const categories = computed(() => {
 <template>
   <div class="palette col">
     <input v-model="search" class="input" placeholder="搜索节点类型…" />
+    <div class="parent-hint muted-2" :title="'新节点会挂到:' + targetParentLabel">
+      挂载父:<b class="fg">{{ targetParentLabel }}</b>
+    </div>
     <div class="scroll cats">
       <div v-for="[cat, defs] in categories" :key="cat" class="cat">
         <div class="cat-title muted-2">{{ cat }}</div>
@@ -67,7 +111,8 @@ const categories = computed(() => {
           v-for="d in defs"
           :key="d.nodeType"
           class="node-item"
-          draggable="true"
+          :class="{ blocked: !acceptable(d.nodeType).ok }"
+          :draggable="acceptable(d.nodeType).ok"
           :title="tipFor(d)"
           @dragstart="onDragStart($event, d.nodeType)"
           @dblclick="addToSelected(d.nodeType)"
@@ -85,7 +130,9 @@ const categories = computed(() => {
         </div>
       </div>
     </div>
-    <div class="hint muted-2">拖拽到画布创建,或双击加到选中节点下</div>
+    <div class="hint muted-2">
+      拖拽到画布 / 双击 添加为选中节点的子。灰色 = 当前父不接受。
+    </div>
   </div>
 </template>
 
@@ -121,6 +168,23 @@ const categories = computed(() => {
   opacity: 0.55;
   cursor: not-allowed;
 }
+.node-item.blocked {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+.node-item.blocked:hover {
+  background: transparent;
+  border-color: transparent;
+}
+.parent-hint {
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--surface-3, rgba(122,156,193,0.08));
+  border: 1px solid var(--line-soft);
+  margin: 4px 0 2px;
+}
+.parent-hint .fg { color: var(--fg); font-weight: 600; }
 .dot {
   width: 9px;
   height: 9px;
