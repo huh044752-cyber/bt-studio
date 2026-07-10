@@ -26,6 +26,14 @@ const edgeCellId = (id: string) => `ecell_${id}`;
 const gotoCellId = (srcNodeId: string) => `goto_${srcNodeId}`;
 const TRANSITION_TYPES = new Set(["ConditionTransition", "StateTransition", "Transition"]);
 
+/** 查一个节点的父(结构边),没有 → null。 */
+function findParentOf(tree: DesignTree, childId: string): string | null {
+  for (const e of Object.values(tree.edges)) {
+    if (e.targetNodeId === childId) return e.sourceNodeId;
+  }
+  return null;
+}
+
 export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
   const graphRef = shallowRef<X6Graph | null>(null);
   // 程序化变更窗口:期间忽略 X6 派发的结构事件,避免回环触发命令。
@@ -223,21 +231,22 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
     if (!n) return;
     const el = ensureMenu();
     el.innerHTML = "";
-    const isRoot = tree?.rootNodeId === nodeId;
-    // 删除节点(根节点不可删 → 渲染为禁用项,无点击行为)。
-    if (isRoot) {
-      const dis = menuItem("🗑 删除节点(根不可删)", false, () => {});
-      dis.style.opacity = "0.4";
-      dis.style.cursor = "not-allowed";
-      el.appendChild(dis);
-    } else {
+    // 断开与父的连线(如果有父)—— 断开后节点变孤儿,不删除节点本身。
+    const parentId = tree ? findParentOf(tree, nodeId) : null;
+    if (parentId) {
       el.appendChild(
-        menuItem("🗑 删除节点", true, () => {
-          ws.run({ kind: "DeleteNode", nodeId });
-          if (ws.selectedNodeId === nodeId) ws.selectedNodeId = "";
+        menuItem("✂ 断开父连线", false, () => {
+          ws.run({ kind: "DisconnectNodes", parentNodeId: parentId, childNodeId: nodeId });
         }),
       );
     }
+    // 删除节点(任何节点都可删,包括 Root;删 Root 时 tree.rootNodeId 会被清空)。
+    el.appendChild(
+      menuItem("🗑 删除节点", true, () => {
+        ws.run({ kind: "DeleteNode", nodeId });
+        if (ws.selectedNodeId === nodeId) ws.selectedNodeId = "";
+      }),
+    );
     el.style.display = "block";
     // 视口边界纠正
     el.style.left = "0px";

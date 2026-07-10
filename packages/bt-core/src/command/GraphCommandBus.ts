@@ -135,7 +135,7 @@ export class GraphCommandBus {
       case "DeleteNode": {
         const node = this.tree.nodes[cmd.nodeId];
         if (!node) return fail("节点不存在");
-        if (cmd.nodeId === this.tree.rootNodeId) return fail("不能删除 Root 节点");
+        // 允许删除 Root(应用侧的清理:rootNodeId 会被 apply 里清空)。
         return { ok: true, affectedNodeIds: this.getAffectedNodes(cmd) };
       }
       case "ConnectNodes": {
@@ -351,6 +351,8 @@ export class GraphCommandBus {
       this.tree.editorMeta.nodeLayouts = this.tree.editorMeta.nodeLayouts.filter(
         (l) => l.nodeId !== id,
       );
+      // 删的是 Root → 清 rootNodeId,树进入"无根"状态(用户可再拖新 Root/Sequence)。
+      if (this.tree.rootNodeId === id) this.tree.rootNodeId = "";
     }
   }
 

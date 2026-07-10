@@ -73,8 +73,9 @@ function onKey(e: KeyboardEvent) {
 }
 
 function del() {
-  if (ws.selectedNodeId && ws.selectedNodeId !== ws.currentTree?.rootNodeId) {
+  if (ws.selectedNodeId) {
     ws.run({ kind: "DeleteNode", nodeId: ws.selectedNodeId });
+    ws.selectedNodeId = "";
   }
 }
 interface ClipNode { nodeType: string; name: string; init: Record<string, unknown>; children: ClipNode[] }

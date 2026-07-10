@@ -2,13 +2,12 @@
 /**
  * 节点面板 —— palette。
  *
- * 拖拽已从 HTML5 draggable 换成 X6 v3.1.7 官方 Dnd:
- *  - 每项 mousedown → emit("pick", nodeType, evt) → 父页调 useNodeDnd.startFrom
- *  - 好处:ghost 与画布 1:1 对齐 + 光标不再显示禁用 ⊘
- *  - 双击继续保留 addToSelected(不经画布,直接命令层追加到智能选父)
+ * 拖拽走 X6 v3.1.7 Dnd:mousedown → emit('pick') → 父页调 useNodeDnd.startFrom。
+ * 落到画布 = 独立孤儿节点(不自动挂父),用户在画布上拖端口手动连线。
+ * 双击 = 同样落孤儿(不再"智能选父"),行为一致。
  */
 import { computed, ref } from "vue";
-import { defaultRegistry, findAcceptableParent, validateConnectionRule } from "@btstudio/bt-core";
+import { defaultRegistry } from "@btstudio/bt-core";
 import { useWorkspaceStore } from "@/stores/workspace";
 
 const emit = defineEmits<{ (e: "pick", nodeType: string, evt: MouseEvent): void }>();
@@ -27,36 +26,6 @@ const publishable = computed(() => {
 
 const restricted = computed(() => defaultRegistry.listRestricted());
 
-/** 当前"建议挂载父"—— 用于视觉提示(soft)与 tooltip;实际落父由 useNodeDnd 智能选。 */
-const targetParent = computed(() => {
-  void ws.rev;
-  const t = ws.currentTree;
-  if (!t) return null;
-  const id = ws.selectedNodeId || t.rootNodeId;
-  return t.nodes[id] ?? null;
-});
-const targetParentLabel = computed(() => {
-  const p = targetParent.value;
-  if (!p) return "(无当前树)";
-  const def = defaultRegistry.get(p.nodeType);
-  return `${def?.displayName ?? p.nodeType} · ${p.name}`;
-});
-
-/** 是否可直接挂当前选中(不经智能选父)。仅用于视觉 `.soft`。 */
-function directOk(childType: string): { ok: boolean; reason?: string } {
-  const p = targetParent.value;
-  if (!p) return { ok: false, reason: "先在左侧新建/选一棵树" };
-  const def = defaultRegistry.get(p.nodeType);
-  if (!def || def.maxChildren <= 0) return { ok: false, reason: `${p.nodeType} 是叶子,不能挂子` };
-  if (p.childOrder.length >= def.maxChildren) {
-    return { ok: false, reason: `${def.displayName} 子已满(${def.maxChildren})` };
-  }
-  const kind = ws.currentTree?.projectKind ?? "behavior_tree";
-  const r = validateConnectionRule(p.nodeType, childType, kind);
-  if (!r.ok) return { ok: false, reason: r.reason };
-  return { ok: true };
-}
-
 function tipFor(d: ReturnType<typeof defaultRegistry.get>): string {
   if (!d) return "";
   const lines: string[] = [`${d.displayName}(${d.nodeType})`];
@@ -69,25 +38,21 @@ function tipFor(d: ReturnType<typeof defaultRegistry.get>): string {
   const childInfo =
     d.maxChildren === 0 ? "叶子(无子节点)" : `子节点 ${d.minChildren}~${d.maxChildren}`;
   lines.push(`结构:${childInfo}`);
-  const acc = directOk(d.nodeType);
-  lines.push(acc.ok ? `✓ 可直接挂:${targetParentLabel.value}` : `~ ${targetParentLabel.value} 不直接接受(${acc.reason}) → 拖动/双击时自动向下找容量`);
+  lines.push("拖到画布落节点(不自动连线,请在画布上拖端口连接)");
   return lines.join("\n");
 }
 
-/** mousedown:交给父页启动 X6 Dnd。左键才响应,避免右键/中键误触。 */
+/** mousedown:交给父页启动 X6 Dnd。左键才响应。 */
 function onPick(evt: MouseEvent, nodeType: string): void {
   if (evt.button !== 0) return;
   emit("pick", nodeType, evt);
 }
 
-/** 双击:走命令层,不经画布 dnd。 */
-function addToSelected(nodeType: string) {
+/** 双击 = 直接在画布空白处落一个孤儿节点(不自动挂父)。 */
+function addOrphan(nodeType: string) {
   const t = ws.currentTree;
   if (!t) return;
-  const seed = ws.selectedNodeId || t.rootNodeId;
-  const parent = findAcceptableParent(t, seed, nodeType);
-  if (!parent) return;
-  const res = ws.run({ kind: "AddNode", nodeType, parentNodeId: parent });
+  const res = ws.run({ kind: "AddNode", nodeType });
   if (res?.ok && res.createdNodeId) ws.selectedNodeId = res.createdNodeId;
 }
 
@@ -104,9 +69,6 @@ const categories = computed(() => {
 <template>
   <div class="palette col">
     <input v-model="search" class="input" placeholder="搜索节点类型…" />
-    <div class="parent-hint muted-2" :title="'新节点智能选父的种子:' + targetParentLabel">
-      种子父:<b class="fg">{{ targetParentLabel }}</b>
-    </div>
     <div class="scroll cats">
       <div v-for="[cat, defs] in categories" :key="cat" class="cat">
         <div class="cat-title muted-2">{{ cat }}</div>
@@ -114,10 +76,9 @@ const categories = computed(() => {
           v-for="d in defs"
           :key="d.nodeType"
           class="node-item"
-          :class="{ soft: !directOk(d.nodeType).ok }"
           :title="tipFor(d)"
           @mousedown="onPick($event, d.nodeType)"
-          @dblclick="addToSelected(d.nodeType)"
+          @dblclick="addOrphan(d.nodeType)"
         >
           <span class="dot" :class="d.colorToken" />
           <span class="nm">{{ d.displayName }}</span>
@@ -133,7 +94,7 @@ const categories = computed(() => {
       </div>
     </div>
     <div class="hint muted-2">
-      按住拖到画布,或双击加到"种子父"。淡色 = 种子父不直接接受,拖/双击时会自动向下找有容量的父。
+      按住拖到画布 / 双击 都落<b>孤儿节点</b>,不自动挂父。在画布上从节点端口拖出连线到目标节点端口来连接。
     </div>
   </div>
 </template>
@@ -141,42 +102,31 @@ const categories = computed(() => {
 <style scoped>
 .palette { height: 100%; }
 .cats { flex: 1; }
-.cat { margin-bottom: 8px; }
+.cat { margin-bottom: var(--space-2); }
 .cat-title {
   font-size: 10px;
   text-transform: uppercase;
-  margin: 6px 2px 3px;
+  margin: var(--space-2) 2px var(--space-1);
 }
 .node-item {
   display: flex;
   align-items: center;
   gap: 7px;
   padding: 5px 8px;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   cursor: grab;
   border: 1px solid transparent;
   user-select: none;
 }
 .node-item:active { cursor: grabbing; }
 .node-item:hover {
-  background: rgba(94, 179, 255, 0.07);
-  border-color: var(--border-subtle, var(--line-soft));
+  background: var(--surface-3);
+  border-color: var(--border-subtle);
 }
 .node-item.restricted {
   opacity: 0.55;
   cursor: not-allowed;
 }
-.node-item.soft { opacity: 0.62; }
-.node-item.soft:hover { opacity: 0.9; }
-.parent-hint {
-  font-size: 11px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  background: var(--surface-3);
-  border: 1px solid var(--border-subtle, var(--line-soft));
-  margin: 4px 0 2px;
-}
-.parent-hint .fg { color: var(--text-primary, var(--fg)); font-weight: 600; }
 .dot {
   width: 9px;
   height: 9px;
@@ -188,7 +138,7 @@ const categories = computed(() => {
 .dot.ok { background: var(--ok); }
 .dot.warn { background: var(--warn); }
 .dot.err { background: var(--err); }
-.dot.muted { background: var(--text-tertiary, var(--muted-2)); }
+.dot.muted { background: var(--text-tertiary); }
 .nm { flex: 1; font-size: 12.5px; }
 .kind { font-size: 10px; }
 .hint { font-size: 10.5px; padding: 4px 2px; }

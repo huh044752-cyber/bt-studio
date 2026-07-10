@@ -13,7 +13,7 @@
  */
 import { shallowRef } from "vue";
 import { Dnd, type Graph } from "@antv/x6";
-import { defaultRegistry, findAcceptableParent } from "@btstudio/bt-core";
+import { defaultRegistry } from "@btstudio/bt-core";
 import type { useWorkspaceStore } from "@/stores/workspace";
 import type { useConsoleStore } from "@/stores/console";
 
@@ -75,7 +75,8 @@ export function useNodeDnd(
     const d = new Dnd({
       target: g,
       scaled: false,
-      // 放到画布时的最终节点:走命令层,X6 添加的是 dummy(sync() 会清)。
+      // 放到画布时的最终节点:落孤儿节点,由用户在画布上手动拖端口连线。
+      // 不再自动挂父/自动选中 —— 用户明确要求"我自己拖线连"。
       getDropNode: (dragging) => {
         const nodeType = (dragging.getData() as { dndNodeType?: string })?.dndNodeType;
         const pos = dragging.getPosition();
@@ -85,21 +86,14 @@ export function useNodeDnd(
           con.warning("canvas", "当前没有树,先在左侧新建一棵");
           return dragging.clone();
         }
-        const seed = ws.selectedNodeId || t.rootNodeId;
-        const parent = findAcceptableParent(t, seed, nodeType);
-        if (!parent) {
-          con.warning("canvas", `没有能收 ${nodeType} 的父节点(容量已满或类型规则不合)`);
-          return dragging.clone();
-        }
-        const res = ws.run({ kind: "AddNode", nodeType, parentNodeId: parent, x: pos.x, y: pos.y });
+        // parentNodeId 传 undefined → 命令层不 connect,只创建独立节点。
+        const res = ws.run({ kind: "AddNode", nodeType, x: pos.x, y: pos.y });
         if (!res?.ok) {
           con.warning("canvas", `创建 ${nodeType} 失败:${res?.reason ?? "未知"}`);
           return dragging.clone();
         }
-        // 自动选中新节点 → 连续拖会级联到新节点下,天然长出树结构。
-        if (res.createdNodeId) ws.selectedNodeId = res.createdNodeId;
-        // X6 会把这个 dummy 加到目标画布,下一帧 useGraphEditor.sync()
-        // 依 tree.nodes diff 清掉它(dummy 的 data 里没有 nodeId)。
+        // X6 会把 dummy 加到目标画布,下一帧 useGraphEditor.sync() 依 tree.nodes
+        // diff 清掉它(dummy 的 data 里没有 nodeId)。
         return dragging.clone();
       },
       // ghost 由 makeGhostNode 提供,这里直接透传源节点。
