@@ -10,6 +10,7 @@ import ProblemsPanel from "@/components/problems/ProblemsPanel.vue";
 import ActionButton from "@/components/common/ActionButton.vue";
 import ModalDialog from "@/components/common/ModalDialog.vue";
 import PageHelpButton from "@/components/common/PageHelpButton.vue";
+import Tag from "@/components/common/Tag.vue";
 import { writeArtifact } from "@/services/tauri";
 
 const ws = useWorkspaceStore();
@@ -214,10 +215,10 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
       <button class="btn tiny" @click="editor.resetZoom()" title="100%">1:1</button>
       <span class="sep" />
       <ActionButton label="导出XML" :disabled="!canExport" @run="exportXml" />
-      <span class="tag info">{{ currentKind }}</span>
-      <span class="tag" :class="canExport ? 'success' : 'error'">
+      <Tag variant="info" size="sm">{{ currentKind }}</Tag>
+      <Tag :variant="canExport ? 'ok' : 'err'" size="sm">
         {{ canExport ? "可导出" : `阻断 ${ws.errorCount}` }}
-      </span>
+      </Tag>
       <span class="spacer" />
       <button class="btn tiny" :title="problemsOpen ? '隐藏问题区' : '显示问题区'" @click="problemsOpen = !problemsOpen">
         {{ problemsOpen ? "▾问题" : "▸问题" }}

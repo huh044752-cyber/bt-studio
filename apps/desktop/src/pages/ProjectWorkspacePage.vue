@@ -4,7 +4,7 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import { useConsoleStore } from "@/stores/console";
 import ActionButton from "@/components/common/ActionButton.vue";
 import ModalDialog from "@/components/common/ModalDialog.vue";
-import PageHelpButton from "@/components/common/PageHelpButton.vue";
+import PageBar from "@/components/common/PageBar.vue";
 import ExportSelectModal from "@/components/workspace/ExportSelectModal.vue";
 import { seedWorkspace } from "@/stores/seed";
 import {
@@ -425,20 +425,15 @@ const stats = computed(() => {
 
 <template>
   <div class="page">
-    <!-- 顶部操作条 -->
-    <div class="page-bar panel">
-      <div class="title">
-        <span class="dot" />
-        <strong>工作空间</strong>
-        <span class="ws-name" :title="ws.workspaceName">{{ ws.workspaceName }}</span>
-      </div>
-      <span class="spacer" />
-      <ActionButton label="新建" :primary="true" confirm="将清空当前工作空间,确认?" @run="openNew" />
-      <ActionButton label="打开…" @run="openWorkspace" />
-      <ActionButton label="保存 XML…" @run="() => startExport('workspace-xml')" />
-      <ActionButton label="工作空间配置…" @run="openCfg" />
-      <ActionButton label="生成 C++ 工程…" :primary="true" @run="() => startExport('cpp-project')" />
-      <PageHelpButton title="工作空间 · 使用帮助" :width="720">
+    <PageBar title="工作空间" :subtitle="ws.workspaceName" dot="brand" help-title="工作空间 · 使用帮助" :help-width="720">
+      <template #actions>
+        <ActionButton label="新建" :primary="true" confirm="将清空当前工作空间,确认?" @run="openNew" />
+        <ActionButton label="打开…" @run="openWorkspace" />
+        <ActionButton label="保存 XML…" @run="() => startExport('workspace-xml')" />
+        <ActionButton label="工作空间配置…" @run="openCfg" />
+        <ActionButton label="生成 C++ 工程…" :primary="true" @run="() => startExport('cpp-project')" />
+      </template>
+      <template #help>
         <section class="help-sec">
           <h3>① 工作流总览</h3>
           <ol>
@@ -473,8 +468,8 @@ ctest --test-dir build -C Release --output-on-failure</pre>
           模型目录改动后会<strong>自动重扫</strong>;旧类型可到「模型类型抽取」页手动清理。<br>
           场景挂接的<strong>完整校验</strong>是硬闸门:任一节点的类/函数在实体 components 里查不到就无法写回。
         </div>
-      </PageHelpButton>
-    </div>
+      </template>
+    </PageBar>
 
     <!-- 选项卡 -->
     <div class="tabs panel">

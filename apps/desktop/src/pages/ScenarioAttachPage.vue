@@ -11,7 +11,7 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import { useConsoleStore } from "@/stores/console";
 import { useScenarioAttachStore, type ScenarioRef } from "@/stores/scenarioAttach";
 import ActionButton from "@/components/common/ActionButton.vue";
-import PageHelpButton from "@/components/common/PageHelpButton.vue";
+import PageBar from "@/components/common/PageBar.vue";
 import Splitter from "@/components/common/Splitter.vue";
 import { scanScenarios, readPathText, writeScenarioFile, readTextFile, writeArtifact } from "@/services/tauri";
 import {
@@ -250,12 +250,12 @@ function validationForTree(treeId: string) {
 
 <template>
   <div class="page" ref="pageRoot">
-    <div class="page-bar panel row">
-      <strong>场景挂接</strong>
-      <span class="spacer" />
-      <ActionButton label="扫描想定" @run="scan" />
-      <ActionButton label="预览差异并覆盖" :primary="true" :disabled="!canAttach" @run="beginAttach" />
-      <PageHelpButton title="场景挂接 · 使用帮助">
+    <PageBar title="场景挂接" dot="brand" help-title="场景挂接 · 使用帮助">
+      <template #actions>
+        <ActionButton label="扫描想定" @run="scan" />
+        <ActionButton label="预览差异并覆盖" :primary="true" :disabled="!canAttach" @run="beginAttach" />
+      </template>
+      <template #help>
         <section class="help-sec">
           <h3>这个页面是做什么的?</h3>
           <p>把已设计好的行为树 / 状态机<strong>挂到想定里的具体实体上</strong>。写回时会覆写实体的 <code>.sdata</code> 挂接命令,并把 <code>.bt</code> / <code>.sm</code> 落到 <code>ModelDatabase</code> 目录。</p>
@@ -277,8 +277,8 @@ function validationForTree(treeId: string) {
         <div class="help-note">
           校验是<strong>硬闸门</strong>:任一节点的类/函数不在实体组件里就无法写回。这确保运行时不会因绑定失效而 crash。
         </div>
-      </PageHelpButton>
-    </div>
+      </template>
+    </PageBar>
 
     <div class="grid">
       <!-- 列 1:想定 / 实体 -->

@@ -2,7 +2,8 @@
 import { ref, computed } from "vue";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useConsoleStore } from "@/stores/console";
-import PageHelpButton from "@/components/common/PageHelpButton.vue";
+import PageBar from "@/components/common/PageBar.vue";
+import Tag from "@/components/common/Tag.vue";
 import {
   createBlackboard,
   resolveMalType,
@@ -150,12 +151,12 @@ function toggleLink(bbId: string) {
 
 <template>
   <div class="page">
-    <div class="page-bar panel row">
-      <strong>黑板中心</strong>
-      <span class="spacer" />
-      <input v-model="newBbName" class="input narrow" placeholder="新建全局黑板名…" />
-      <button class="btn tiny primary" @click="createGlobal">新建全局黑板</button>
-      <PageHelpButton title="黑板中心 · 使用帮助">
+    <PageBar title="黑板中心" :subtitle="`${blackboards.length} 全局 · ${localBoards.length} 本地`" dot="brand" help-title="黑板中心 · 使用帮助">
+      <template #actions>
+        <input v-model="newBbName" class="input narrow" placeholder="新建全局黑板名…" />
+        <button class="btn tiny primary" @click="createGlobal">新建全局黑板</button>
+      </template>
+      <template #help>
         <section class="help-sec">
           <h3>这个页面是做什么的?</h3>
           <p>创建<strong>运行期变量</strong>—— 行为树/状态机运行时读写的数据。对应 behaviac 的静态成员 / Par。</p>
@@ -175,8 +176,8 @@ function toggleLink(bbId: string) {
           </ul>
           <p>本页新建变量时的"类型"下拉,枚举项都是从类型空间读取的;要新增枚举请先去类型空间。</p>
         </section>
-      </PageHelpButton>
-    </div>
+      </template>
+    </PageBar>
     <div class="grid">
       <div class="panel list scroll">
         <div class="grp">全局黑板(跨树共享)</div>
@@ -188,7 +189,7 @@ function toggleLink(bbId: string) {
           @click="selectedBb = b.blackboardId"
         >
           <div class="bb-row">
-            <span class="tag info">全局</span>
+            <Tag variant="accent" size="xs">全局</Tag>
             <span class="nm">{{ b.name }}</span>
             <span class="muted-2">{{ b.variables.length }} 变量</span>
             <button
@@ -204,7 +205,7 @@ function toggleLink(bbId: string) {
           <div class="links">
             <span class="muted-2">被链接:</span>
             <template v-if="linkedTreesOf(b.blackboardId).length">
-              <span v-for="(tn, i) in linkedTreesOf(b.blackboardId)" :key="i" class="chip">{{ tn }}</span>
+              <Tag v-for="(tn, i) in linkedTreesOf(b.blackboardId)" :key="i" variant="neutral" size="xs">{{ tn }}</Tag>
             </template>
             <span v-else class="muted-2">(无)</span>
           </div>
@@ -220,10 +221,10 @@ function toggleLink(bbId: string) {
           @click="selectedBb = x.board.blackboardId"
         >
           <div class="bb-row">
-            <span class="tag">本地</span>
+            <Tag variant="neutral" size="xs">本地</Tag>
             <span class="nm">{{ x.board.name }}</span>
             <span class="muted-2">{{ x.board.variables.length }} 变量</span>
-            <span class="chip owner">归属:{{ x.tree.displayName }}</span>
+            <Tag variant="accent-2" size="xs">归属:{{ x.tree.displayName }}</Tag>
           </div>
         </div>
         <div v-if="localBoards.length === 0" class="muted-2 empty">暂无树/本地黑板。</div>
@@ -232,7 +233,7 @@ function toggleLink(bbId: string) {
         <div v-if="!current" class="muted-2 empty">选择左侧黑板(全局/本地)查看与编辑变量</div>
         <div v-else>
           <div class="row">
-            <span class="tag" :class="current.scope === 'global' ? 'info' : ''">{{ current.scope === "global" ? "全局" : "本地" }}</span>
+            <Tag :variant="current.scope === 'global' ? 'accent' : 'neutral'" size="sm">{{ current.scope === "global" ? "全局" : "本地" }}</Tag>
             <strong>{{ current.name }}</strong><span class="spacer" /><button class="btn tiny" @click="addVar">新建变量</button>
           </div>
           <table class="tbl">
@@ -252,7 +253,7 @@ function toggleLink(bbId: string) {
                     </optgroup>
                   </select>
                 </td>
-                <td><span class="tag info mono">{{ v.malType || resolveMalType(v.displayType) }}</span></td>
+                <td><span class="mal-cell mono">{{ v.malType || resolveMalType(v.displayType) }}</span></td>
                 <td><input class="input tiny" v-model="v.defaultValue" /></td>
                 <td :class="checkValue(v.defaultValue, v) === '✓' ? 'ok' : 'err'">{{ checkValue(v.defaultValue, v) }}</td>
               </tr>
@@ -265,26 +266,22 @@ function toggleLink(bbId: string) {
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 10px; height: 100%; }
-.page-bar { padding: 8px 12px; gap: 8px; }
+.page { display: flex; flex-direction: column; gap: var(--space-3); height: 100%; }
 .narrow { width: 200px; }
-.grid { display: grid; grid-template-columns: 300px 1fr; gap: 10px; flex: 1; min-height: 0; }
-.list, .detail { padding: 8px; }
-.grp { font-size: 10.5px; color: var(--muted-2); text-transform: uppercase; letter-spacing: 0.5px; margin: 8px 4px 4px; }
-.bb-item { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border-radius: 7px; cursor: pointer; border: 1px solid transparent; }
-.bb-item:hover { background: rgba(94,179,255,0.06); }
-.bb-item.active { background: rgba(94,179,255,0.13); border-color: rgba(94,179,255,0.3); }
-.bb-row { display: flex; align-items: center; gap: 8px; }
-.links { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: 11px; padding-left: 2px; }
-.chip { background: rgba(122,156,193,0.16); border-radius: 5px; padding: 1px 6px; font-size: 10.5px; }
-.chip.owner { background: rgba(245,182,92,0.16); color: var(--accent-2); }
+.grid { display: grid; grid-template-columns: 300px 1fr; gap: var(--space-3); flex: 1; min-height: 0; }
+.list, .detail { padding: var(--space-2); }
+.grp { font-size: 10.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin: var(--space-2) var(--space-1) var(--space-1); }
+.bb-item { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-1) var(--space-2); border-radius: var(--radius-md); cursor: pointer; border: 1px solid transparent; }
+.bb-item:hover { background: var(--surface-3); }
+.bb-item.active { background: var(--accent-soft); border-color: var(--accent-border); }
+.bb-row { display: flex; align-items: center; gap: var(--space-2); }
+.links { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; font-size: 11px; padding-left: 2px; }
 .nm { flex: 1; font-weight: 600; }
-.empty { padding: 16px; }
-.tbl { width: 100%; border-collapse: collapse; margin-top: 8px; }
-.tbl th { text-align: left; font-size: 10.5px; color: var(--muted-2); padding: 4px 6px; }
-.tbl td { padding: 3px 6px; border-bottom: 1px solid var(--line-soft); }
-/* .input.tiny / .select.tiny 使用 theme.css 的全局尺寸(30px / 12px),
- * 之前的 24px+11px 让"CyberOrientationType"这类长串在下拉里被裁,已迁移到全局。 */
+.empty { padding: var(--space-4); }
+.tbl { width: 100%; border-collapse: collapse; margin-top: var(--space-2); }
+.tbl th { text-align: left; font-size: 10.5px; color: var(--text-tertiary); padding: 4px 6px; }
+.tbl td { padding: 3px 6px; border-bottom: 1px solid var(--border-subtle); }
+.mal-cell { font-size: 10.5px; color: var(--text-tertiary); }
 .ok { color: var(--ok); }
 .err { color: var(--err); }
 </style>
