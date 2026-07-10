@@ -1,7 +1,17 @@
 <script setup lang="ts">
-import { ref, computed } from "vue";
-import { defaultRegistry, validateConnectionRule } from "@btstudio/bt-core";
+/**
+ * 节点面板 —— palette。
+ *
+ * 拖拽已从 HTML5 draggable 换成 X6 v3.1.7 官方 Dnd:
+ *  - 每项 mousedown → emit("pick", nodeType, evt) → 父页调 useNodeDnd.startFrom
+ *  - 好处:ghost 与画布 1:1 对齐 + 光标不再显示禁用 ⊘
+ *  - 双击继续保留 addToSelected(不经画布,直接命令层追加到智能选父)
+ */
+import { computed, ref } from "vue";
+import { defaultRegistry, findAcceptableParent, validateConnectionRule } from "@btstudio/bt-core";
 import { useWorkspaceStore } from "@/stores/workspace";
+
+const emit = defineEmits<{ (e: "pick", nodeType: string, evt: MouseEvent): void }>();
 
 const ws = useWorkspaceStore();
 const search = ref("");
@@ -15,14 +25,9 @@ const publishable = computed(() => {
     .filter((d) => !search.value || d.displayName.includes(search.value) || d.nodeType.toLowerCase().includes(search.value.toLowerCase()));
 });
 
-const showRoot = computed(() => {
-  void ws.rev;
-  const kind = ws.currentTree?.projectKind ?? "behavior_tree";
-  return kind === "state_machine" ? defaultRegistry.get("Root") : null;
-});
 const restricted = computed(() => defaultRegistry.listRestricted());
 
-/** 当前拖拽/双击的目标父节点(选中优先,否则 Root)。 */
+/** 当前"建议挂载父"—— 用于视觉提示(soft)与 tooltip;实际落父由 useNodeDnd 智能选。 */
 const targetParent = computed(() => {
   void ws.rev;
   const t = ws.currentTree;
@@ -37,10 +42,10 @@ const targetParentLabel = computed(() => {
   return `${def?.displayName ?? p.nodeType} · ${p.name}`;
 });
 
-/** 某类型能否作为 targetParent 的新子(容量 + 类型规则)。用于视觉预判。 */
-function acceptable(childType: string): { ok: boolean; reason?: string } {
+/** 是否可直接挂当前选中(不经智能选父)。仅用于视觉 `.soft`。 */
+function directOk(childType: string): { ok: boolean; reason?: string } {
   const p = targetParent.value;
-  if (!p) return { ok: false, reason: "没有父节点(先选一个节点)" };
+  if (!p) return { ok: false, reason: "先在左侧新建/选一棵树" };
   const def = defaultRegistry.get(p.nodeType);
   if (!def || def.maxChildren <= 0) return { ok: false, reason: `${p.nodeType} 是叶子,不能挂子` };
   if (p.childOrder.length >= def.maxChildren) {
@@ -52,13 +57,6 @@ function acceptable(childType: string): { ok: boolean; reason?: string } {
   return { ok: true };
 }
 
-function onDragStart(e: DragEvent, nodeType: string) {
-  // 始终允许拖:onDrop 里会智能选父(选中→后代→Root)。这里只透传类型。
-  e.dataTransfer?.setData("application/x-node-type", nodeType);
-  if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
-}
-
-/** 悬停提示:逻辑描述 + 端口描述 + 当前是否可挂到选中父。 */
 function tipFor(d: ReturnType<typeof defaultRegistry.get>): string {
   if (!d) return "";
   const lines: string[] = [`${d.displayName}(${d.nodeType})`];
@@ -71,54 +69,26 @@ function tipFor(d: ReturnType<typeof defaultRegistry.get>): string {
   const childInfo =
     d.maxChildren === 0 ? "叶子(无子节点)" : `子节点 ${d.minChildren}~${d.maxChildren}`;
   lines.push(`结构:${childInfo}`);
-  const acc = acceptable(d.nodeType);
-  lines.push(acc.ok ? `✓ 可挂到:${targetParentLabel.value}` : `✗ 不能挂到 ${targetParentLabel.value} — ${acc.reason}`);
+  const acc = directOk(d.nodeType);
+  lines.push(acc.ok ? `✓ 可直接挂:${targetParentLabel.value}` : `~ ${targetParentLabel.value} 不直接接受(${acc.reason}) → 拖动/双击时自动向下找容量`);
   return lines.join("\n");
 }
 
+/** mousedown:交给父页启动 X6 Dnd。左键才响应,避免右键/中键误触。 */
+function onPick(evt: MouseEvent, nodeType: string): void {
+  if (evt.button !== 0) return;
+  emit("pick", nodeType, evt);
+}
+
+/** 双击:走命令层,不经画布 dnd。 */
 function addToSelected(nodeType: string) {
-  // 双击也走"智能选父":选中不接受 → 找有容量的可组合后代 → 再回落到 Root。
   const t = ws.currentTree;
   if (!t) return;
   const seed = ws.selectedNodeId || t.rootNodeId;
-  const parent = findAcceptableParent(seed, nodeType);
+  const parent = findAcceptableParent(t, seed, nodeType);
   if (!parent) return;
   const res = ws.run({ kind: "AddNode", nodeType, parentNodeId: parent });
   if (res?.ok && res.createdNodeId) ws.selectedNodeId = res.createdNodeId;
-}
-
-/**
- * 从 seed 出发,找第一个能收 childType 的父节点。
- *  1) seed 自身可收 → 用 seed
- *  2) 沿 childOrder 深度优先 → 第一个可收的可组合后代
- *  3) 回落 Root
- * 都不行 → null(整棵树都没地方挂)。
- */
-function findAcceptableParent(seedId: string, childType: string): string | null {
-  const t = ws.currentTree;
-  if (!t) return null;
-  const kind = t.projectKind ?? "behavior_tree";
-  const canTake = (pid: string): boolean => {
-    const p = t.nodes[pid];
-    if (!p) return false;
-    const def = defaultRegistry.get(p.nodeType);
-    if (!def || def.maxChildren <= 0) return false;
-    if (p.childOrder.length >= def.maxChildren) return false;
-    return validateConnectionRule(p.nodeType, childType, kind).ok;
-  };
-  if (canTake(seedId)) return seedId;
-  const seen = new Set<string>();
-  const stack = [seedId];
-  while (stack.length) {
-    const id = stack.pop()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    if (id !== seedId && canTake(id)) return id;
-    const n = t.nodes[id];
-    if (n) for (const c of n.childOrder) stack.push(c);
-  }
-  if (t.rootNodeId !== seedId && canTake(t.rootNodeId)) return t.rootNodeId;
-  return null;
 }
 
 const categories = computed(() => {
@@ -134,8 +104,8 @@ const categories = computed(() => {
 <template>
   <div class="palette col">
     <input v-model="search" class="input" placeholder="搜索节点类型…" />
-    <div class="parent-hint muted-2" :title="'新节点会挂到:' + targetParentLabel">
-      挂载父:<b class="fg">{{ targetParentLabel }}</b>
+    <div class="parent-hint muted-2" :title="'新节点智能选父的种子:' + targetParentLabel">
+      种子父:<b class="fg">{{ targetParentLabel }}</b>
     </div>
     <div class="scroll cats">
       <div v-for="[cat, defs] in categories" :key="cat" class="cat">
@@ -144,10 +114,9 @@ const categories = computed(() => {
           v-for="d in defs"
           :key="d.nodeType"
           class="node-item"
-          :class="{ soft: !acceptable(d.nodeType).ok }"
-          draggable="true"
+          :class="{ soft: !directOk(d.nodeType).ok }"
           :title="tipFor(d)"
-          @dragstart="onDragStart($event, d.nodeType)"
+          @mousedown="onPick($event, d.nodeType)"
           @dblclick="addToSelected(d.nodeType)"
         >
           <span class="dot" :class="d.colorToken" />
@@ -164,21 +133,15 @@ const categories = computed(() => {
       </div>
     </div>
     <div class="hint muted-2">
-      拖到画布 / 双击 都会自动挂到"选中→后代→Root"里第一个有容量的父。淡色 = 当前选中不接受,会自动向下找合适位置。
+      按住拖到画布,或双击加到"种子父"。淡色 = 种子父不直接接受,拖/双击时会自动向下找有容量的父。
     </div>
   </div>
 </template>
 
 <style scoped>
-.palette {
-  height: 100%;
-}
-.cats {
-  flex: 1;
-}
-.cat {
-  margin-bottom: 8px;
-}
+.palette { height: 100%; }
+.cats { flex: 1; }
+.cat { margin-bottom: 8px; }
 .cat-title {
   font-size: 10px;
   text-transform: uppercase;
@@ -192,22 +155,16 @@ const categories = computed(() => {
   border-radius: 7px;
   cursor: grab;
   border: 1px solid transparent;
+  user-select: none;
 }
+.node-item:active { cursor: grabbing; }
 .node-item:hover {
   background: rgba(94, 179, 255, 0.07);
-  border-color: var(--line-soft);
+  border-color: var(--border-subtle, var(--line-soft));
 }
 .node-item.restricted {
   opacity: 0.55;
   cursor: not-allowed;
-}
-.node-item.blocked {
-  opacity: 0.42;
-  cursor: not-allowed;
-}
-.node-item.blocked:hover {
-  background: transparent;
-  border-color: transparent;
 }
 .node-item.soft { opacity: 0.62; }
 .node-item.soft:hover { opacity: 0.9; }
@@ -215,11 +172,11 @@ const categories = computed(() => {
   font-size: 11px;
   padding: 4px 6px;
   border-radius: 6px;
-  background: var(--surface-3, rgba(122,156,193,0.08));
-  border: 1px solid var(--line-soft);
+  background: var(--surface-3);
+  border: 1px solid var(--border-subtle, var(--line-soft));
   margin: 4px 0 2px;
 }
-.parent-hint .fg { color: var(--fg); font-weight: 600; }
+.parent-hint .fg { color: var(--text-primary, var(--fg)); font-weight: 600; }
 .dot {
   width: 9px;
   height: 9px;
@@ -231,16 +188,8 @@ const categories = computed(() => {
 .dot.ok { background: var(--ok); }
 .dot.warn { background: var(--warn); }
 .dot.err { background: var(--err); }
-.dot.muted { background: var(--muted-2); }
-.nm {
-  flex: 1;
-  font-size: 12.5px;
-}
-.kind {
-  font-size: 10px;
-}
-.hint {
-  font-size: 10.5px;
-  padding: 4px 2px;
-}
+.dot.muted { background: var(--text-tertiary, var(--muted-2)); }
+.nm { flex: 1; font-size: 12.5px; }
+.kind { font-size: 10px; }
+.hint { font-size: 10.5px; padding: 4px 2px; }
 </style>

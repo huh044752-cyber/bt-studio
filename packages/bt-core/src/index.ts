@@ -52,3 +52,6 @@ export * from "./import/scenario.js";
 
 // 布局
 export * from "./layout/autoLayout.js";
+
+// 图辅助
+export * from "./utils/tree.js";

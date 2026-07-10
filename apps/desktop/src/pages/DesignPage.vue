@@ -3,6 +3,7 @@ import { ref, onMounted, onBeforeUnmount, watch, nextTick, computed } from "vue"
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useConsoleStore } from "@/stores/console";
 import { useGraphEditor } from "@/composables/useGraphEditor";
+import { useNodeDnd } from "@/composables/useNodeDnd";
 import NodePalette from "@/components/palette/NodePalette.vue";
 import PropertiesPanel from "@/components/properties/PropertiesPanel.vue";
 import ProblemsPanel from "@/components/problems/ProblemsPanel.vue";
@@ -10,11 +11,11 @@ import ActionButton from "@/components/common/ActionButton.vue";
 import ModalDialog from "@/components/common/ModalDialog.vue";
 import PageHelpButton from "@/components/common/PageHelpButton.vue";
 import { writeArtifact } from "@/services/tauri";
-import { defaultRegistry, validateConnectionRule } from "@btstudio/bt-core";
 
 const ws = useWorkspaceStore();
 const c = useConsoleStore();
 const editor = useGraphEditor(ws);
+const dnd = useNodeDnd(editor.graphRef, ws, c);
 const canvasEl = ref<HTMLElement | null>(null);
 // 剪贴板移入 store(跨页/跨树持久),修复"新建树后粘贴显示剪贴板为空"。
 
@@ -44,6 +45,7 @@ onMounted(async () => {
 });
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", onKey);
+  dnd.dispose();
   editor.dispose();
 });
 
@@ -122,63 +124,9 @@ function paste() {
   else c.warning("canvas", "粘贴失败(检查父节点是否允许该子节点)");
 }
 
-const canvasDragOver = ref(false);
-function onDragOverCanvas(e: DragEvent) {
-  e.preventDefault();
-  canvasDragOver.value = true;
-}
-function onDragLeaveCanvas() { canvasDragOver.value = false; }
-
-/**
- * 智能选父:从 seed 出发,自身可收 → seed;否则深度优先在其子树里找;
- * 再回落 Root。用于"用户选了个叶子(Action),拖了 Sequence 也能落"这种场景。
- */
-function findAcceptableParent(seedId: string, childType: string): string | null {
-  const t = ws.currentTree;
-  if (!t) return null;
-  const kind = t.projectKind ?? "behavior_tree";
-  const canTake = (pid: string): boolean => {
-    const p = t.nodes[pid];
-    if (!p) return false;
-    const def = defaultRegistry.get(p.nodeType);
-    if (!def || def.maxChildren <= 0) return false;
-    if (p.childOrder.length >= def.maxChildren) return false;
-    return validateConnectionRule(p.nodeType, childType, kind).ok;
-  };
-  if (canTake(seedId)) return seedId;
-  const seen = new Set<string>();
-  const stack = [seedId];
-  while (stack.length) {
-    const id = stack.pop()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    if (id !== seedId && canTake(id)) return id;
-    const n = t.nodes[id];
-    if (n) for (const c of n.childOrder) stack.push(c);
-  }
-  if (t.rootNodeId !== seedId && canTake(t.rootNodeId)) return t.rootNodeId;
-  return null;
-}
-
-function onDrop(e: DragEvent) {
-  e.preventDefault();
-  canvasDragOver.value = false;
-  const nodeType = e.dataTransfer?.getData("application/x-node-type");
-  if (!nodeType) return;
-  const graph = editor.graphRef.value;
-  const p = graph ? graph.clientToLocal(e.clientX, e.clientY) : { x: 240, y: 240 };
-  const t = ws.currentTree;
-  if (!t) { c.warning("canvas", "当前没有树,先在左侧新建一棵"); return; }
-  const seed = ws.selectedNodeId || t.rootNodeId;
-  const parent = findAcceptableParent(seed, nodeType);
-  if (!parent) {
-    c.warning("canvas", `没有能收 ${nodeType} 的父节点(容量已满或类型规则不合)`);
-    return;
-  }
-  const res = ws.run({ kind: "AddNode", nodeType, parentNodeId: parent, x: p.x, y: p.y });
-  if (!res?.ok) { c.warning("canvas", `创建 ${nodeType} 失败:${res?.reason ?? "未知"}`); return; }
-  // 自动选中新节点 → 下一次拖会自然向下级联,不再"选中 Root 后所有子容量满就没法拖"。
-  if (res.createdNodeId) ws.selectedNodeId = res.createdNodeId;
+// palette 拖起时:走 X6 v3.1.7 官方 Dnd。所有 HTML5 drag/drop 相关已删。
+function onPaletteStart(nodeType: string, evt: MouseEvent): void {
+  dnd.startFrom(nodeType, evt);
 }
 
 // 新建工程弹窗(行为树 / 状态机)
@@ -328,23 +276,9 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
 
     <!-- 画布区(抽屉覆盖其上,切换不挤压画布) -->
     <div class="body">
-      <!-- 中间画布(在外层 .center 上也冗余绑 drag 事件,防 X6 SVG 子层吞) -->
-      <div
-        class="center col"
-        @drop="onDrop"
-        @dragover.prevent="onDragOverCanvas"
-        @dragenter.prevent
-        @dragleave="onDragLeaveCanvas"
-      >
-        <div
-          ref="canvasEl"
-          class="canvas panel"
-          :class="{ 'drop-hot': canvasDragOver }"
-          @drop.stop="onDrop"
-          @dragover.prevent.stop="onDragOverCanvas"
-          @dragenter.prevent.stop
-          @dragleave.stop="onDragLeaveCanvas"
-        />
+      <!-- 中间画布(X6 Dnd 走独立事件通道,不再需要 HTML5 drop 层) -->
+      <div class="center col">
+        <div ref="canvasEl" class="canvas panel" />
         <div v-if="problemsOpen" class="problems-strip panel">
           <ProblemsPanel />
         </div>
@@ -383,7 +317,7 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
         </div>
         <div class="left-sec palette-sec">
           <div class="sec-head"><strong>节点库</strong></div>
-          <NodePalette />
+          <NodePalette @pick="onPaletteStart" />
         </div>
         <div class="drawer-resizer right" title="拖拽改宽" @pointerdown="startResize('left', $event)" />
       </div>
@@ -560,13 +494,6 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  transition: outline-color 0.15s ease, background 0.15s ease;
-  outline: 2px dashed transparent;
-  outline-offset: -6px;
-}
-.canvas.drop-hot {
-  outline-color: var(--accent, #5eb3ff);
-  background: var(--accent-soft, rgba(94, 179, 255, 0.06));
 }
 .problems-strip {
   height: 150px;
