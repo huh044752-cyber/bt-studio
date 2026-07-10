@@ -297,7 +297,30 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
             <li><code>+</code> / <code>-</code> — 放大 / 缩小</li>
           </ul>
         </section>
+        <section class="help-sec">
+          <h3>节点连接规则速查(行为树)</h3>
+          <ul>
+            <li><strong>Root · 根</strong> — 0 入 / 1 出,<b>恰好 1 子</b>。BT:任意结构子;FSM:只能连 State。</li>
+            <li><strong>Sequence · 顺序 / Selector · 选择</strong> — 组合,1~64 子,遇失败/成功即短路。</li>
+            <li><strong>Parallel · 并行</strong> — 组合,<b>2~64 子</b>,按成功/失败阈值汇总。</li>
+            <li><strong>And · 与 / Or · 或</strong> — 组合,<b>子只能是 Condition / ConditionTransform</b>,其他被拒。</li>
+            <li><strong>IfElse · 条件分支</strong> — <b>恰好 3 子</b>(条件、真、假)。</li>
+            <li><strong>SelectMonitor · 选择监测</strong> — 组合,<b>子只能是 MonitorBranch</b>。</li>
+            <li><strong>MonitorBranch · 监测分支</strong> — <b>恰好 2 子</b>,<b>父必须是 SelectMonitor</b>。子不能是 SelectMonitor(避免环)。</li>
+            <li><strong>Decorator 装饰器</strong>(循环 / 反相 / 恒成功 / 恒失败 / 成功直到 / 失败直到)— 1 入 1 出,<b>恰好 1 子</b>。</li>
+            <li><strong>Action · 动作 / Condition · 条件 / Wait · 等待 / SubTree · 子树</strong> — 叶子,<b>0 子</b>,不可再挂。</li>
+          </ul>
+        </section>
+        <section class="help-sec">
+          <h3>节点连接规则速查(状态机)</h3>
+          <ul>
+            <li><strong>Root</strong> — <b>只能连 State</b>(且只 1 个入口 State)。</li>
+            <li><strong>State · 状态</strong> — 子<b>只能是 ConditionTransition / StateTransition / Transition</b>。</li>
+            <li><strong>ConditionTransition / StateTransition / Transition · 跳转</strong> — 是叶子,不接结构子;<b>目标 State 走属性面板"目标状态"引用</b>,画布上显示为橙色虚线 Goto 边。</li>
+          </ul>
+        </section>
         <div class="help-note">
+          拖拽会<b>智能选父</b>:选中节点自身收不下 → 深度优先在其子树找有容量的可组合节点 → 兜底 Root。找不到才提示。<br />
           校验分 Error / Warning / Info,<strong>有 Error 时禁止导出 / 挂接</strong>。问题区(顶栏"▾问题")展示逐条错误 + 定位。
         </div>
       </PageHelpButton>
@@ -305,15 +328,22 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
 
     <!-- 画布区(抽屉覆盖其上,切换不挤压画布) -->
     <div class="body">
-      <!-- 中间画布 -->
-      <div class="center col">
+      <!-- 中间画布(在外层 .center 上也冗余绑 drag 事件,防 X6 SVG 子层吞) -->
+      <div
+        class="center col"
+        @drop="onDrop"
+        @dragover.prevent="onDragOverCanvas"
+        @dragenter.prevent
+        @dragleave="onDragLeaveCanvas"
+      >
         <div
           ref="canvasEl"
           class="canvas panel"
           :class="{ 'drop-hot': canvasDragOver }"
-          @drop="onDrop"
-          @dragover="onDragOverCanvas"
-          @dragleave="onDragLeaveCanvas"
+          @drop.stop="onDrop"
+          @dragover.prevent.stop="onDragOverCanvas"
+          @dragenter.prevent.stop
+          @dragleave.stop="onDragLeaveCanvas"
         />
         <div v-if="problemsOpen" class="problems-strip panel">
           <ProblemsPanel />
