@@ -138,6 +138,7 @@ bt-studio/
 |---|---|
 | `tauri dev` 一直卡在 Compiling | 首次编译 rustc 拖依赖,10-15 分钟正常;后续增量 <10s |
 | 双击 exe 白屏 | 缺 WebView2 Runtime(Win10),装完就好 |
+| exe 图标不显示 / 是空白 | **Windows 图标缓存**没刷新。修法:<br>①`taskkill /IM explorer.exe /F` → `del /A /Q %LOCALAPPDATA%\IconCache.db 2>NUL` → `del /A /F /Q %LOCALAPPDATA%\Microsoft\Windows\Explorer\iconcache*` → `start explorer.exe`;<br>② 或把 exe 复制到一个全新目录再看 |
 | `error: linker 'link.exe' not found` | 没装 VS Build Tools 的 "C++ 桌面开发" 组件 |
 | `ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL` on tauri build | 多半是 `capabilities/default.json` 语法坏了 —— Tauri v2 权限 id 必须 `lowercase-with-hyphens`,不能有下划线 |
 | `icons/icon.ico not found` | 首次 clone 后跑 `pnpm --filter @btstudio/desktop tauri icon src-tauri/icons/source.png` 生成全套图标 |

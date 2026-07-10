@@ -2,6 +2,7 @@
 import { ref, computed } from "vue";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useConsoleStore } from "@/stores/console";
+import PageHelpButton from "@/components/common/PageHelpButton.vue";
 import {
   createBlackboard,
   resolveMalType,
@@ -150,16 +151,31 @@ function toggleLink(bbId: string) {
 <template>
   <div class="page">
     <div class="page-bar panel row">
-      <strong>黑板中心 · 运行期变量</strong>
+      <strong>黑板中心</strong>
       <span class="spacer" />
       <input v-model="newBbName" class="input narrow" placeholder="新建全局黑板名…" />
       <button class="btn tiny primary" @click="createGlobal">新建全局黑板</button>
-    </div>
-    <div class="hint-banner panel">
-      <span class="tag info">黑板</span>
-      这里创建<strong>运行期变量</strong>(全局黑板 = 跨树共享 / 本地黑板 = 单树私有,对应 behaviac 的静态成员 / Par)。
-      变量的<strong>类型</strong>引用「类型空间」里的枚举/结构体,<strong>类/Agent/方法/枚举/结构体的声明请到「类型空间 (Agent/类型)」页创建</strong>。
-      区别:此处=数据实例;类型空间=类型声明(等价 C++ 类成员/方法)。
+      <PageHelpButton title="黑板中心 · 使用帮助">
+        <section class="help-sec">
+          <h3>这个页面是做什么的?</h3>
+          <p>创建<strong>运行期变量</strong>—— 行为树/状态机运行时读写的数据。对应 behaviac 的静态成员 / Par。</p>
+        </section>
+        <section class="help-sec">
+          <h3>两种黑板</h3>
+          <ul>
+            <li><strong>全局黑板</strong>(跨树共享)—— 所有链接了它的树都能读写</li>
+            <li><strong>本地黑板</strong>(单树私有)—— 每棵树自动带一块,归属清晰</li>
+          </ul>
+        </section>
+        <section class="help-sec">
+          <h3>与「类型空间」的分工</h3>
+          <ul>
+            <li>本页 = 变量<strong>实例</strong>(有名字 + 类型 + 默认值)</li>
+            <li>类型空间 = <strong>类型声明</strong>(类/方法/枚举/结构体)</li>
+          </ul>
+          <p>本页新建变量时的"类型"下拉,枚举项都是从类型空间读取的;要新增枚举请先去类型空间。</p>
+        </section>
+      </PageHelpButton>
     </div>
     <div class="grid">
       <div class="panel list scroll">
@@ -251,7 +267,6 @@ function toggleLink(bbId: string) {
 <style scoped>
 .page { display: flex; flex-direction: column; gap: 10px; height: 100%; }
 .page-bar { padding: 8px 12px; gap: 8px; }
-.hint-banner { padding: 8px 12px; font-size: 12px; line-height: 1.6; color: var(--muted); }
 .narrow { width: 200px; }
 .grid { display: grid; grid-template-columns: 300px 1fr; gap: 10px; flex: 1; min-height: 0; }
 .list, .detail { padding: 8px; }

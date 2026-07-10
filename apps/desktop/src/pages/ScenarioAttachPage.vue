@@ -11,6 +11,7 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import { useConsoleStore } from "@/stores/console";
 import { useScenarioAttachStore, type ScenarioRef } from "@/stores/scenarioAttach";
 import ActionButton from "@/components/common/ActionButton.vue";
+import PageHelpButton from "@/components/common/PageHelpButton.vue";
 import Splitter from "@/components/common/Splitter.vue";
 import { scanScenarios, readPathText, writeScenarioFile, readTextFile, writeArtifact } from "@/services/tauri";
 import {
@@ -250,12 +251,33 @@ function validationForTree(treeId: string) {
 <template>
   <div class="page" ref="pageRoot">
     <div class="page-bar panel row">
-      <strong>场景挂接 · 组装</strong>
-      <span class="muted-2">选实体 → 勾选多棵行为树/状态机 → 批量校验 → 一次写回</span>
+      <strong>场景挂接</strong>
       <span class="spacer" />
       <ActionButton label="扫描想定" @run="scan" />
-      <span class="policy-hint" title="覆盖式挂接:同名 ADD 命令一律替换,写盘前会先展示与已挂载版本的差异">覆盖式挂接</span>
       <ActionButton label="预览差异并覆盖" :primary="true" :disabled="!canAttach" @run="beginAttach" />
+      <PageHelpButton title="场景挂接 · 使用帮助">
+        <section class="help-sec">
+          <h3>这个页面是做什么的?</h3>
+          <p>把已设计好的行为树 / 状态机<strong>挂到想定里的具体实体上</strong>。写回时会覆写实体的 <code>.sdata</code> 挂接命令,并把 <code>.bt</code> / <code>.sm</code> 落到 <code>ModelDatabase</code> 目录。</p>
+        </section>
+        <section class="help-sec">
+          <h3>工作流</h3>
+          <ol>
+            <li>「扫描想定」找到 <code>ScenarioSource</code> 下所有 <code>.sdata</code></li>
+            <li>选想定 → 选实体(左栏)</li>
+            <li>勾选要挂的行为树/状态机(中栏)</li>
+            <li>每棵树自动<strong>按实体组件集校验</strong>(右栏),类/函数在实体组件里查不到就报错</li>
+            <li>「预览差异并覆盖」—— 弹窗展示与已挂载版本的 diff → 确认覆写</li>
+          </ol>
+        </section>
+        <section class="help-sec">
+          <h3>覆盖式挂接策略</h3>
+          <p>同名 <code>ADD Behaviac / ADD StateMachine</code> 命令<strong>一律替换</strong>——不追加、不合并。写盘前会展示 git-diff 风格的对比,确认后原子写入(带 <code>.bak</code> 备份)。</p>
+        </section>
+        <div class="help-note">
+          校验是<strong>硬闸门</strong>:任一节点的类/函数不在实体组件里就无法写回。这确保运行时不会因绑定失效而 crash。
+        </div>
+      </PageHelpButton>
     </div>
 
     <div class="grid">

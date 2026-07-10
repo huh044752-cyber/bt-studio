@@ -4,6 +4,7 @@ import { useWorkspaceStore } from "@/stores/workspace";
 import { useConsoleStore } from "@/stores/console";
 import ActionButton from "@/components/common/ActionButton.vue";
 import ModalDialog from "@/components/common/ModalDialog.vue";
+import PageHelpButton from "@/components/common/PageHelpButton.vue";
 import Splitter from "@/components/common/Splitter.vue";
 import { saveTextFile, readTextFile } from "@/services/tauri";
 import { functionOwnerClass, newFunctionId, newEnumId, prefixedId } from "@btstudio/bt-core";
@@ -257,18 +258,37 @@ function collapseAll(v: boolean) {
 <template>
   <div class="page">
     <div class="page-bar panel row">
-      <strong>类型空间 · Agent / 方法 / 成员 / 枚举</strong>
+      <strong>类型空间</strong>
       <span class="muted-2">{{ ws.classes.length }} 类 · {{ ws.functionCatalog.functions.length }} 函数 · {{ ws.enums.length }} 枚举</span>
       <span class="spacer" />
       <button class="btn tiny" @click="toggleXml">{{ xmlVisible ? "▾ 隐藏 meta.xml" : "▸ 显示 meta.xml" }}</button>
       <ActionButton label="导入 meta.xml" @run="importXml" />
       <ActionButton label="导出 meta.xml" :primary="true" @run="exportMeta" />
-    </div>
-    <div class="hint-banner panel">
-      <span class="tag info">类型</span>
-      <strong>类型编辑</strong>(类=Agent、方法=函数、成员=变量声明、枚举)。来源:① 右栏"新建类/枚举"并行内编辑;
-      ② 从<strong>「工作空间 → 模型类型抽取」</strong>勾选真实模型的类抽取过来;③ 导入 <code>meta.xml</code>。
-      运行期变量请到「黑板中心」;<strong>C++ 代码生成在「工作空间」</strong>。
+      <PageHelpButton title="类型空间 · 使用帮助">
+        <section class="help-sec">
+          <h3>这个页面是做什么的?</h3>
+          <p>编辑<strong>类型声明</strong>:类 (Agent) / 方法 (函数) / 成员 (变量声明) / 枚举。等价于 C++ 里的类头文件,是行为树/状态机叶子节点绑定"类 → 方法"的来源。</p>
+        </section>
+        <section class="help-sec">
+          <h3>三条数据来源</h3>
+          <ol>
+            <li>右栏「＋新建类 / ＋新建枚举」,并在行内直接编辑</li>
+            <li>从<strong>「工作空间 → 模型类型抽取」</strong>勾选真实模型 <code>.cmp</code> 里已有的类,一键抽取过来</li>
+            <li>「导入 meta.xml」加载 behaviac 风格的类型清单</li>
+          </ol>
+        </section>
+        <section class="help-sec">
+          <h3>与其他页面的分工</h3>
+          <ul>
+            <li><strong>类型空间</strong>(本页)= 类型声明</li>
+            <li><strong>黑板中心</strong> = 运行期变量实例</li>
+            <li><strong>工作空间</strong> = C++ 代码生成 + 工作空间保存</li>
+          </ul>
+        </section>
+        <div class="help-note">
+          方法/成员/枚举的新增会自动<strong>按类去重命名</strong>(NewMethod / NewMethod2 / …),避免同类下撞名。
+        </div>
+      </PageHelpButton>
     </div>
     <div class="grid" :class="{ single: !xmlVisible }">
       <div v-if="xmlVisible" class="panel scroll">
@@ -414,8 +434,6 @@ function collapseAll(v: boolean) {
 .ptitle { font-size: 11px; color: var(--accent); margin-bottom: 8px; }
 .xml { width: 100%; height: calc(100% - 26px); resize: none; font-size: 11.5px; }
 .empty { padding: 14px; }
-.hint-banner { padding: 8px 12px; font-size: 12px; line-height: 1.6; color: var(--muted); }
-.hint-banner code { background: rgba(122,156,193,0.14); padding: 0 4px; border-radius: 4px; }
 .create-bar { gap: 6px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
 
 /* 新增方法/成员行:短暂高亮,配合 scrollIntoView 指引用户找到刚加的行。 */

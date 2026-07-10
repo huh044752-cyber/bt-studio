@@ -8,6 +8,7 @@ import PropertiesPanel from "@/components/properties/PropertiesPanel.vue";
 import ProblemsPanel from "@/components/problems/ProblemsPanel.vue";
 import ActionButton from "@/components/common/ActionButton.vue";
 import ModalDialog from "@/components/common/ModalDialog.vue";
+import PageHelpButton from "@/components/common/PageHelpButton.vue";
 import { writeArtifact } from "@/services/tauri";
 
 const ws = useWorkspaceStore();
@@ -223,6 +224,32 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
         {{ problemsOpen ? "▾问题" : "▸问题" }}
       </button>
       <button class="btn tiny" :class="{ on: rightOpen }" title="属性/绑定(抽屉)" @click="rightOpen = !rightOpen">属性 ☰</button>
+      <PageHelpButton title="设计页 · 使用帮助">
+        <section class="help-sec">
+          <h3>这个页面是做什么的?</h3>
+          <p>可视化编辑<strong>行为树 / 状态机</strong>。左抽屉选/建工程,画布拖节点连线,右抽屉编辑节点属性 + 绑定。</p>
+        </section>
+        <section class="help-sec">
+          <h3>三大抽屉</h3>
+          <ul>
+            <li><strong>左抽屉:</strong>项目树(新建/切换 BT/FSM)、节点库(拖到画布)</li>
+            <li><strong>画布:</strong>拖节点、连线、框选、多选、复制粘贴</li>
+            <li><strong>右抽屉:</strong>属性 / 绑定(Action/Condition/State 选类 → 选方法 → 绑参数)</li>
+          </ul>
+        </section>
+        <section class="help-sec">
+          <h3>快捷键</h3>
+          <ul>
+            <li><code>Ctrl+Z</code> / <code>Ctrl+Y</code> — 撤销 / 重做</li>
+            <li><code>Ctrl+C</code> / <code>Ctrl+V</code> — 复制 / 粘贴</li>
+            <li><code>Delete</code> — 删除选中</li>
+            <li><code>+</code> / <code>-</code> — 放大 / 缩小</li>
+          </ul>
+        </section>
+        <div class="help-note">
+          校验分 Error / Warning / Info,<strong>有 Error 时禁止导出 / 挂接</strong>。问题区(顶栏"▾问题")展示逐条错误 + 定位。
+        </div>
+      </PageHelpButton>
     </div>
 
     <!-- 画布区(抽屉覆盖其上,切换不挤压画布) -->
