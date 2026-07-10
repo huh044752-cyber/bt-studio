@@ -44,17 +44,41 @@ async function scrollFocusById(id: string) {
   el.classList.add("just-added");
   window.setTimeout(() => el.classList.remove("just-added"), 1500);
 }
+/**
+ * 生成一个在给定"已用名集合"里唯一的新名字:
+ * 起始名不冲突就用它;冲突就追加 2/3/… 直到不重。
+ * 例如 usedNames=["NewMethod","NewMethod2"], base="NewMethod" → "NewMethod3"。
+ */
+function uniqueName(usedNames: Set<string>, base: string): string {
+  if (!usedNames.has(base)) return base;
+  for (let i = 2; i < 10_000; i++) {
+    const cand = `${base}${i}`;
+    if (!usedNames.has(cand)) return cand;
+  }
+  return `${base}${Date.now()}`;
+}
+
 function addMethod(className: string, classId: string) {
   const functionId = newFunctionId();
+  // 同类下同名会撞 bindingTarget,PropertiesPanel 里 `选择方法` 下拉 :value=m.name
+  // 也会因为重复 name 无法区分,用户看到多个 `新方法 (action)` 都是同一个选项。
+  // 生成唯一名 NewMethod / NewMethod2 / …,displayName 跟着后缀走。
+  const used = new Set(
+    ws.functionCatalog.functions
+      .filter((f) => functionOwnerClass(f) === className)
+      .map((f) => f.name),
+  );
+  const name = uniqueName(used, "NewMethod");
+  const displayName = name === "NewMethod" ? "新方法" : `新方法${name.slice("NewMethod".length)}`;
   ws.functionCatalog.functions.push({
     functionId,
-    name: "NewMethod",
-    displayName: "新方法",
+    name,
+    displayName,
     category: "action",
-    bindingTarget: `${className}.NewMethod`,
+    bindingTarget: `${className}.${name}`,
     ownerClass: className,
     returnType: "CyberDFMPFRC",
-    intendedCmd: "NEWMETHOD",
+    intendedCmd: name.toUpperCase(),
     params: [],
   });
   ws.bump();
@@ -64,13 +88,16 @@ function addMethod(className: string, classId: string) {
 }
 function addMember(className: string, classId: string) {
   const memberId = prefixedId("member");
+  // 与 addMethod 同理:成员名同类下必须唯一,否则 C++ 生成的类成员会撞名。
+  const used = new Set(ws.members.filter((m) => m.ownerClassId === classId).map((m) => m.memberName));
+  const memberName = uniqueName(used, "newMember");
   ws.members.push({
     memberId,
     ownerClassId: classId,
-    memberName: "newMember",
+    memberName,
     valueType: "CyberIntegerType",
     accessMode: "readwrite",
-    bindingPath: `Self.${className}::newMember`,
+    bindingPath: `Self.${className}::${memberName}`,
     static: false,
     displayType: "int",
   });
