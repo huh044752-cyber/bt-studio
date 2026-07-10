@@ -47,12 +47,17 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   const console = useConsoleStore();
 
   const mode = ref<StudioMode>("standalone");
-  const workspaceName = ref("bt-studio-workspace");
-  // 老引擎分支:默认指向老模型目录(F:/0411/ccc/FZFOSimModel),用户可在配置里改写。
-  const modelRoot = ref<string>("F:/0411/ccc/FZFOSimModel");
+  const workspaceName = ref("");
+  // 默认空:用户在"新建工作空间"里显式配置 modelRoot / exportCodeDir。
+  // 不再预填 F:/0411/ccc/FZFOSimModel 之类的测试路径,避免"打开新工作空间即出现测试数据"。
+  const modelRoot = ref<string>("");
   // 工作空间配置(对齐 behaviac workspace.xml:导出代码目录/语言 + FOSim 命名空间)
   // Tauri 原生对话框返回的绝对路径,空串表示未配置。
   const exportCodeDir = ref<string>("");
+  // 单树 BT/FSM XML 导出目录(设计页"导出XML"按钮落盘目录)。与 C++ 工程目录独立:
+  // C++ 工程目录用来放整套代码骨架 + behaviors/,单树 XML 目录一般直接指向老引擎的
+  // ModelDatabase 下的 BehaviacTree / StateMachine,让用户"改完即用"。
+  const exportXmlDir = ref<string>("");
   const language = ref<"cpp" | "cs">("cpp");
   const cppNamespace = ref<string>("btproj");
   // 工作空间 XML 自身在磁盘上的绝对路径(打开/另存后回写),供"保存 XML"静默覆写。
@@ -166,8 +171,16 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   }
 
   function newTree(name: string, projectKind: "behavior_tree" | "state_machine" = "behavior_tree"): DesignTree {
+    // 名称去重:同名会让 XML 索引 / 场景挂接 / SubTree 引用无法区分。若冲突,追加 _2/_3 …。
+    let finalName = name;
+    if (trees.value.some((t) => t.treeName === finalName)) {
+      let i = 2;
+      while (trees.value.some((t) => t.treeName === `${name}_${i}`)) i++;
+      finalName = `${name}_${i}`;
+      console.warning("workspace", `名称「${name}」已存在,改用「${finalName}」`);
+    }
     // FSM 也有 Root 作为"根节点容器"(vue2 式:Root 下挂 State 节点,对齐连接规则 Root→State)。
-    const tree = createTree({ treeName: name, mode: mode.value, projectKind, withRoot: true });
+    const tree = createTree({ treeName: finalName, mode: mode.value, projectKind, withRoot: true });
     const local = createBlackboard(`${name}-本地板`, "tree", { blackboardId: tree.localBlackboardId });
     registerTree(tree, local);
     currentTreeId.value = tree.treeId;
@@ -449,6 +462,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
       config: {
         modelRoot: modelRoot.value || undefined,
         exportCodeDir: exportCodeDir.value || undefined,
+        exportXmlDir: exportXmlDir.value || undefined,
         cppNamespace: cppNamespace.value || undefined,
         engineSrcDir: engineSrcDir.value || undefined,
         workspaceFilePath: workspaceFilePath.value || undefined,
@@ -525,6 +539,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     if (res.language) language.value = res.language as "cpp" | "cs";
     if (res.config.modelRoot) modelRoot.value = res.config.modelRoot;
     if (res.config.exportCodeDir) exportCodeDir.value = res.config.exportCodeDir;
+    if (res.config.exportXmlDir) exportXmlDir.value = res.config.exportXmlDir;
     if (res.config.cppNamespace) cppNamespace.value = res.config.cppNamespace;
     if (res.config.engineSrcDir) engineSrcDir.value = res.config.engineSrcDir;
     if (res.config.workspaceFilePath) workspaceFilePath.value = res.config.workspaceFilePath;
@@ -684,6 +699,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     workspaceName,
     modelRoot,
     exportCodeDir,
+    exportXmlDir,
     language,
     cppNamespace,
     engineSrcDir,

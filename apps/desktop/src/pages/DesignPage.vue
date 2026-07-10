@@ -11,7 +11,7 @@ import ActionButton from "@/components/common/ActionButton.vue";
 import ModalDialog from "@/components/common/ModalDialog.vue";
 import PageHelpButton from "@/components/common/PageHelpButton.vue";
 import Tag from "@/components/common/Tag.vue";
-import { writeArtifact } from "@/services/tauri";
+import { writeArtifact, pickDirectory } from "@/services/tauri";
 
 const ws = useWorkspaceStore();
 const c = useConsoleStore();
@@ -20,19 +20,41 @@ const dnd = useNodeDnd(editor.graphRef, ws, c);
 const canvasEl = ref<HTMLElement | null>(null);
 // 剪贴板移入 store(跨页/跨树持久),修复"新建树后粘贴显示剪贴板为空"。
 
+/**
+ * 单树 BT/FSM XML 导出目录 —— 与 C++ 工程目录彻底解耦。
+ * 优先级:ws.exportXmlDir → 弹原生"选择目录"对话框(选完记入 exportXmlDir)。
+ * 之前误复用 exportCodeDir(C++ 工程根),会把 .bt/.fsm.xml 落到工程根根目录,
+ * 与代码骨架混在一起,且和"工作空间→配置→XML 导出目录"字段语义脱节。
+ * 不再兜底 modelRoot:模型目录只用于类型抽取,不应作为导出物写入目标。
+ */
+async function resolveXmlExportDir(): Promise<string | null> {
+  if (ws.exportXmlDir) return ws.exportXmlDir;
+  const picked = await pickDirectory("");
+  if (!picked) {
+    c.warning("export", "未选择 XML 导出目录,已取消。请在「工作空间 → 配置」里设置「BT/FSM XML 导出目录」以便下次直接落盘。");
+    return null;
+  }
+  ws.exportXmlDir = picked;
+  c.info("export", `已记住 XML 导出目录:${picked}(下次导出直接写入)`);
+  return picked;
+}
+
 async function exportXml() {
   const t = ws.currentTree;
   if (!t) throw new Error("无当前树");
+  const dir = await resolveXmlExportDir();
+  if (!dir) return;
+  const base = dir.replace(/[\\/]+$/, "");
   if (ws.isStateMachine) {
     const r = ws.exportFsmCurrent();
     if (!r.ok || !r.xml) throw new Error(r.error);
-    const out = await writeArtifact(`${t.treeName}.fsm.xml`, r.xml);
+    const out = await writeArtifact(`${base}/${t.treeName}.fsm.xml`, r.xml);
     c.success("export", `导出状态机 → ${out.path}`);
     return;
   }
   const res = ws.exportCurrent();
   if (!res.ok || !res.artifacts) throw new Error(res.error);
-  const out = await writeArtifact(`${t.treeName}.bt.xml`, res.artifacts.xml);
+  const out = await writeArtifact(`${base}/${t.treeName}.bt.xml`, res.artifacts.xml);
   c.success("export", `导出行为树 → ${out.path}`);
 }
 
@@ -135,14 +157,36 @@ function onPaletteStart(nodeType: string, evt: MouseEvent): void {
 const createOpen = ref(false);
 const createKind = ref<"behavior_tree" | "state_machine">("behavior_tree");
 const createName = ref("");
+const createError = ref("");
 function openCreate(kind: "behavior_tree" | "state_machine") {
   createKind.value = kind;
   createName.value = "";
+  createError.value = "";
   createOpen.value = true;
 }
+/** 输入变化即清红字,让用户改完能立刻看到"错误已解除"。 */
+watch(createName, () => { createError.value = ""; });
+/** 生成同 kind 下不重复的默认名(fsm_1 / fsm_2 或 tree_1 / tree_2 …)。 */
+function nextDefaultName(kind: "behavior_tree" | "state_machine"): string {
+  const prefix = kind === "state_machine" ? "fsm_" : "tree_";
+  const used = new Set(ws.trees.map((t) => t.treeName));
+  for (let i = 1; i < 9999; i++) {
+    const cand = `${prefix}${i}`;
+    if (!used.has(cand)) return cand;
+  }
+  return `${prefix}${ws.trees.length + 1}`;
+}
 function confirmCreate() {
-  const fallback = createKind.value === "state_machine" ? `fsm_${ws.trees.length + 1}` : `tree_${ws.trees.length + 1}`;
-  ws.newTree(createName.value.trim() || fallback, createKind.value);
+  const raw = createName.value.trim();
+  const name = raw || nextDefaultName(createKind.value);
+  // 名称必须全局唯一(BT/FSM 混合命名空间):同名无法从 XML 索引 / 挂接 sdata 时区分。
+  // 弹窗内红字提示 + 保留输入,不再仅打控制台(用户看不到)。
+  if (ws.trees.some((t) => t.treeName === name)) {
+    createError.value = `名称「${name}」已存在,请换一个(BT/FSM 共用命名空间)`;
+    c.warning("workspace", createError.value);
+    return;
+  }
+  ws.newTree(name, createKind.value);
   createOpen.value = false;
 }
 
@@ -157,6 +201,17 @@ function batchDelete() {
   selectedIds.value = new Set();
 }
 const canExport = computed(() => ws.canExport);
+
+/** 按 kind(BT/FSM)分组的树列表 —— 左抽屉树列表使用。 */
+const treeGroups = computed(() => {
+  void ws.rev;
+  const bt = ws.trees.filter((t) => (t.projectKind ?? "behavior_tree") !== "state_machine");
+  const fsm = ws.trees.filter((t) => t.projectKind === "state_machine");
+  return [
+    { key: "bt", label: "行为树", items: bt },
+    { key: "fsm", label: "状态机", items: fsm },
+  ] as const;
+});
 
 // 面板:抽屉式隐藏(覆盖在画布上,不挤压中间画布)+ 可拖拽改宽。
 const leftOpen = ref(true);
@@ -300,16 +355,22 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
             <button class="btn tiny" @click="openCreate('state_machine')" title="新建状态机">+ 状态机</button>
           </div>
           <div class="tree-list scroll">
-            <div
-              v-for="t in ws.trees"
-              :key="t.treeId"
-              class="tree-item"
-              :class="{ active: t.treeId === ws.currentTreeId }"
-            >
-              <input type="checkbox" :checked="selectedIds.has(t.treeId)" @change="toggleSel(t.treeId)" />
-              <span class="tname" @click="ws.switchTree(t.treeId)">{{ t.displayName }}</span>
-              <span class="tcount muted-2">{{ Object.keys(t.nodes).length }}</span>
-            </div>
+            <template v-for="g in treeGroups" :key="g.key">
+              <div class="tree-group-head muted-2">
+                {{ g.label }} <span class="tree-group-count">{{ g.items.length }}</span>
+              </div>
+              <div v-if="g.items.length === 0" class="tree-empty muted-2">(暂无)</div>
+              <div
+                v-for="t in g.items"
+                :key="t.treeId"
+                class="tree-item"
+                :class="{ active: t.treeId === ws.currentTreeId }"
+              >
+                <input type="checkbox" :checked="selectedIds.has(t.treeId)" @change="toggleSel(t.treeId)" />
+                <span class="tname" :title="t.treeName" @click="ws.switchTree(t.treeId)">{{ t.displayName || t.treeName }}</span>
+                <span class="tcount muted-2">{{ Object.keys(t.nodes).length }}</span>
+              </div>
+            </template>
           </div>
           <div class="row">
             <button class="btn tiny danger" :disabled="selectedIds.size === 0" @click="batchDelete">
@@ -346,8 +407,15 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
     >
       <label class="dlg-fld">
         <span>名称</span>
-        <input class="input" v-model="createName" :placeholder="createKind === 'state_machine' ? 'fsm_1' : 'tree_1'" @keyup.enter="confirmCreate" />
+        <input
+          class="input"
+          :class="{ 'input-err': !!createError }"
+          v-model="createName"
+          :placeholder="createKind === 'state_machine' ? 'fsm_1' : 'tree_1'"
+          @keyup.enter="confirmCreate"
+        />
       </label>
+      <div v-if="createError" class="dlg-err">⚠ {{ createError }}</div>
       <div class="muted-2" style="font-size: 11px">类型:{{ createKind === "state_machine" ? "状态机(State/转移)" : "行为树(BT 节点)" }}</div>
     </ModalDialog>
   </div>
@@ -356,6 +424,16 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
 <style scoped>
 .dlg-fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
 .dlg-fld > span { color: var(--muted); }
+.dlg-err {
+  font-size: 12px;
+  color: var(--err);
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--err) 40%, transparent);
+  background: color-mix(in srgb, var(--err) 12%, transparent);
+  border-radius: var(--radius-md);
+  margin-top: 4px;
+}
+.input-err { border-color: var(--err) !important; }
 .design {
   display: flex;
   flex-direction: column;
@@ -449,8 +527,32 @@ const currentKind = computed(() => (ws.currentTree?.projectKind === "state_machi
   gap: 5px;
 }
 .tree-list {
-  max-height: 160px;
+  max-height: 220px;
   min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.tree-group-head {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin: var(--space-2) 2px 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tree-group-count {
+  font-size: 10px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--surface-3);
+  color: var(--text-tertiary);
+}
+.tree-empty {
+  font-size: 11px;
+  padding: 2px 6px;
+  font-style: italic;
 }
 .tree-item {
   display: flex;

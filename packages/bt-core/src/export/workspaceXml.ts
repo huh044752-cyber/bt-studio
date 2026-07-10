@@ -40,6 +40,8 @@ export interface WorkspaceConfig {
   modelRoot?: string;
   /** C++ 导出代码目录。 */
   exportCodeDir?: string;
+  /** 单树 BT/FSM XML 导出目录(与 C++ 工程独立)。 */
+  exportXmlDir?: string;
   /** C++ 命名空间。 */
   cppNamespace?: string;
   /** 引擎源码根目录(拷贝真实 BT/FSM 运行时 + MAL 到工程 runtime/)。 */
@@ -66,7 +68,7 @@ export function serializeWorkspaceXml(ws: WorkspaceXmlInput): string {
   );
 
   // 配置(模型目录 / 导出目录 / 命名空间)—— 供"打开工作空间"恢复数据用。
-  const cfgAttrs = `${attr("modelRoot", cfg.modelRoot)}${attr("exportCodeDir", cfg.exportCodeDir)}${attr("cppNamespace", cfg.cppNamespace)}${attr("engineSrcDir", cfg.engineSrcDir)}${attr("workspaceFilePath", cfg.workspaceFilePath)}`;
+  const cfgAttrs = `${attr("modelRoot", cfg.modelRoot)}${attr("exportCodeDir", cfg.exportCodeDir)}${attr("exportXmlDir", cfg.exportXmlDir)}${attr("cppNamespace", cfg.cppNamespace)}${attr("engineSrcDir", cfg.engineSrcDir)}${attr("workspaceFilePath", cfg.workspaceFilePath)}`;
   lines.push(`  <Config${cfgAttrs} />`);
 
   // 内联 meta(去掉其 xml 声明)

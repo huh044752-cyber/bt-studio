@@ -54,6 +54,31 @@ const canAttach = computed(
 
 const pageRoot = ref<HTMLElement | null>(null);
 
+// 想定/实体的模糊过滤词(局部 UI 状态,不入 store —— 关掉页面不需要保留)。
+const scenarioFilter = ref("");
+const unitFilter = ref("");
+
+/** 想定过滤:按 name / sdataPath 子串,大小写不敏感。 */
+const filteredScenarios = computed(() => {
+  const q = scenarioFilter.value.trim().toLowerCase();
+  if (!q) return scenarios.value;
+  return scenarios.value.filter((s) =>
+    s.name.toLowerCase().includes(q) || (s.sdataPath ?? "").toLowerCase().includes(q),
+  );
+});
+
+/** 实体过滤:name / typeOfUnit / objectHandle / 组件 className 任一命中即保留。 */
+const filteredUnits = computed(() => {
+  const q = unitFilter.value.trim().toLowerCase();
+  if (!q) return units.value;
+  return units.value.filter((u) => {
+    if (u.name.toLowerCase().includes(q)) return true;
+    if ((u.typeOfUnit ?? "").toLowerCase().includes(q)) return true;
+    if (String(u.objectHandle).toLowerCase().includes(q)) return true;
+    return u.components.some((c2) => c2.className.toLowerCase().includes(q));
+  });
+});
+
 async function scan() {
   const root = ws.modelRoot;
   if (!root) {
@@ -287,17 +312,28 @@ function validationForTree(treeId: string) {
           <summary class="fold-t">
             <span class="chev">▾</span>
             <span class="tt">① 想定</span>
-            <span class="badge" v-if="scenarios.length">{{ scenarios.length }}</span>
+            <span class="badge" v-if="scenarios.length">
+              {{ scenarioFilter ? `${filteredScenarios.length} / ${scenarios.length}` : scenarios.length }}
+            </span>
           </summary>
           <div class="fold-b">
+            <div v-if="scenarios.length" class="filter-row">
+              <input
+                class="input tiny filter-in"
+                v-model="scenarioFilter"
+                placeholder="搜索想定名 / 路径…"
+              />
+              <button v-if="scenarioFilter" class="btn tiny x-btn" title="清除" @click="scenarioFilter = ''">✕</button>
+            </div>
             <div class="list">
-              <div v-for="s in scenarios" :key="s.sdataPath" class="item" :class="{ active: s === selScenario }" @click="pickScenario(s)">
+              <div v-for="s in filteredScenarios" :key="s.sdataPath" class="item" :class="{ active: s === selScenario }" @click="pickScenario(s)">
                 <span class="s-name ellipsis" :title="s.sdataPath">{{ s.name }}</span>
                 <button class="btn tiny danger x-btn"
                   @click.stop="removeScenario(s)"
                   :title="`从列表移除 ${s.name}`">✕</button>
               </div>
               <div v-if="scenarios.length === 0" class="muted-2 empty">点「扫描想定」</div>
+              <div v-else-if="filteredScenarios.length === 0" class="muted-2 empty">无匹配「{{ scenarioFilter }}」</div>
             </div>
           </div>
         </details>
@@ -306,12 +342,22 @@ function validationForTree(treeId: string) {
           <summary class="fold-t">
             <span class="chev">▾</span>
             <span class="tt">② 实体</span>
-            <span class="badge" v-if="units.length">{{ units.length }}</span>
+            <span class="badge" v-if="units.length">
+              {{ unitFilter ? `${filteredUnits.length} / ${units.length}` : units.length }}
+            </span>
             <span class="muted-3 nowrap">点卡片进入组装</span>
           </summary>
           <div class="fold-b">
+            <div v-if="units.length" class="filter-row">
+              <input
+                class="input tiny filter-in"
+                v-model="unitFilter"
+                placeholder="搜索实体名 / 类型 / 句柄 / 组件类…"
+              />
+              <button v-if="unitFilter" class="btn tiny x-btn" title="清除" @click="unitFilter = ''">✕</button>
+            </div>
             <div class="list units">
-              <div v-for="u in units" :key="u.objectHandle" class="unit-item" :class="{ active: u === selUnit }" @click="pickUnit(u)">
+              <div v-for="u in filteredUnits" :key="u.objectHandle" class="unit-item" :class="{ active: u === selUnit }" @click="pickUnit(u)">
                 <div class="ui-row">
                   <span class="u-name">{{ u.name }}</span>
                   <span class="tag" v-if="assemblyMap[u.objectHandle]?.length">{{ assemblyMap[u.objectHandle]?.length }} 挂</span>
@@ -319,6 +365,7 @@ function validationForTree(treeId: string) {
                 <div class="ui-meta muted-2">#{{ u.objectHandle }} · {{ u.typeOfUnit }} · {{ u.components.length }} 组件</div>
               </div>
               <div v-if="units.length === 0" class="muted-2 empty">选想定后显示实体</div>
+              <div v-else-if="filteredUnits.length === 0" class="muted-2 empty">无匹配「{{ unitFilter }}」</div>
             </div>
           </div>
         </details>
@@ -721,6 +768,14 @@ function validationForTree(treeId: string) {
 .fold.sub > .fold-b { padding: 4px 8px 6px 24px; }
 
 /* --- 列表(想定/实体) --- */
+.filter-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 2px 6px;
+}
+.filter-in { flex: 1; min-width: 0; font-size: 11.5px; }
+.filter-row .x-btn { padding: 0 6px; line-height: 20px; font-size: 11px; flex: 0 0 auto; }
 .list { max-height: 340px; overflow: auto; padding: 2px; }
 .item {
   display: flex; align-items: center; gap: 6px;

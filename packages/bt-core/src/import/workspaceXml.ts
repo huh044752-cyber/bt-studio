@@ -15,7 +15,7 @@ import type { CyberMARGType } from "../types/mal.js";
 export interface WorkspaceParseResult {
   name: string;
   language?: string;
-  config: { modelRoot?: string; exportCodeDir?: string; cppNamespace?: string; engineSrcDir?: string; workspaceFilePath?: string };
+  config: { modelRoot?: string; exportCodeDir?: string; exportXmlDir?: string; cppNamespace?: string; engineSrcDir?: string; workspaceFilePath?: string };
   catalog: Partial<CatalogBundle>;
   globalBlackboards: Blackboard[];
   /** 已还原的行为树(BT + FSM) */
@@ -40,6 +40,7 @@ export function parseWorkspaceXml(xml: string): WorkspaceParseResult {
   const config = {
     modelRoot: cfgA["modelRoot"] || undefined,
     exportCodeDir: cfgA["exportCodeDir"] || undefined,
+    exportXmlDir: cfgA["exportXmlDir"] || undefined,
     cppNamespace: cfgA["cppNamespace"] || undefined,
     engineSrcDir: cfgA["engineSrcDir"] || undefined,
     workspaceFilePath: cfgA["workspaceFilePath"] || undefined,

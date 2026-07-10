@@ -32,11 +32,12 @@ const exportTarget = ref<ExportTarget>("cpp-project");
 
 // --- 配置对话框(共用 New / Edit)。引擎源码目录已移除:engine-core 不再默认导出,该字段无作用。 ---
 // workspaceFilePath = 工作空间 XML 的落盘绝对路径(打开/另存后回写);为空则"保存 XML"走另存为对话框。
-type CfgForm = { name: string; modelRoot: string; exportCodeDir: string; workspaceFilePath: string; cppNamespace: string; language: "cpp" | "cs" };
+// exportXmlDir = 设计页"导出XML"单树写盘目录(BT/FSM XML),与 C++ 工程 exportCodeDir 独立。
+type CfgForm = { name: string; modelRoot: string; exportCodeDir: string; exportXmlDir: string; workspaceFilePath: string; cppNamespace: string; language: "cpp" | "cs" };
 const newOpen = ref(false);
 const cfgOpen = ref(false);
-const newCfg = ref<CfgForm>({ name: "workspace", modelRoot: "", exportCodeDir: "", workspaceFilePath: "", cppNamespace: "btproj", language: "cpp" });
-const cfg = ref<CfgForm>({ name: "", modelRoot: "", exportCodeDir: "", workspaceFilePath: "", cppNamespace: "btproj", language: "cpp" });
+const newCfg = ref<CfgForm>({ name: "workspace", modelRoot: "", exportCodeDir: "", exportXmlDir: "", workspaceFilePath: "", cppNamespace: "btproj", language: "cpp" });
+const cfg = ref<CfgForm>({ name: "", modelRoot: "", exportCodeDir: "", exportXmlDir: "", workspaceFilePath: "", cppNamespace: "btproj", language: "cpp" });
 
 /** Tauri-only:所有路径都是绝对路径,直接展示。 */
 function displayPath(raw: string): { text: string; isBrowserName: boolean } {
@@ -50,6 +51,7 @@ function openNew() {
     name: "workspace",
     modelRoot: "",
     exportCodeDir: "",
+    exportXmlDir: "",
     workspaceFilePath: "",
     cppNamespace: "btproj",
     language: "cpp",
@@ -60,6 +62,7 @@ async function confirmNew() {
   ws.newWorkspace(newCfg.value.name.trim() || "workspace");
   ws.modelRoot = newCfg.value.modelRoot;
   ws.exportCodeDir = newCfg.value.exportCodeDir;
+  ws.exportXmlDir = newCfg.value.exportXmlDir;
   ws.workspaceFilePath = newCfg.value.workspaceFilePath;
   ws.cppNamespace = newCfg.value.cppNamespace || "btproj";
   ws.language = newCfg.value.language;
@@ -72,6 +75,7 @@ function openCfg() {
     name: ws.workspaceName,
     modelRoot: ws.modelRoot,
     exportCodeDir: ws.exportCodeDir,
+    exportXmlDir: ws.exportXmlDir,
     workspaceFilePath: ws.workspaceFilePath,
     cppNamespace: ws.cppNamespace,
     language: ws.language,
@@ -82,6 +86,7 @@ async function applyCfg() {
   ws.workspaceName = cfg.value.name.trim() || ws.workspaceName;
   ws.modelRoot = cfg.value.modelRoot;
   ws.exportCodeDir = cfg.value.exportCodeDir;
+  ws.exportXmlDir = cfg.value.exportXmlDir;
   ws.workspaceFilePath = cfg.value.workspaceFilePath;
   ws.cppNamespace = cfg.value.cppNamespace || "btproj";
   ws.language = cfg.value.language;
@@ -180,6 +185,15 @@ async function pickWorkspaceFileFromOverview() {
 async function pickExportDir(target: "new" | "cfg") {
   const setVal = (v: string) => { if (target === "new") newCfg.value.exportCodeDir = v; else cfg.value.exportCodeDir = v; };
   const cur = target === "new" ? newCfg.value.exportCodeDir : cfg.value.exportCodeDir;
+  const dir = await pickDirectory(cur);
+  if (!dir) return;
+  setVal(dir);
+}
+
+/** 选 BT/FSM XML 单树导出目录(与 C++ 工程目录独立)。 */
+async function pickExportXmlDir(target: "new" | "cfg") {
+  const setVal = (v: string) => { if (target === "new") newCfg.value.exportXmlDir = v; else cfg.value.exportXmlDir = v; };
+  const cur = target === "new" ? newCfg.value.exportXmlDir : cfg.value.exportXmlDir;
   const dir = await pickDirectory(cur);
   if (!dir) return;
   setVal(dir);
@@ -598,10 +612,21 @@ ctest --test-dir build -C Release --output-on-failure</pre>
                 <button v-if="ws.exportCodeDir && !exportPath.isBrowserName" class="copy" :title="`复制 ${exportPath.text}`" @click="copyText(exportPath.text, '导出目录')">⧉</button>
               </span>
             </div>
+            <div class="cfg-row path">
+              <span class="cfg-k">③ BT/FSM XML 目录</span>
+              <span class="cfg-v path-v" :class="{ unset: !ws.exportXmlDir }">
+                <span class="path-text mono"
+                  :title="ws.exportXmlDir || '未配置 — 设计页「导出XML」时会弹目录选择器'">
+                  {{ ws.exportXmlDir || "未配置(导出时再选)" }}
+                </span>
+                <button v-if="ws.exportXmlDir" class="copy" :title="`复制 ${ws.exportXmlDir}`" @click="copyText(ws.exportXmlDir, 'XML 导出目录')">⧉</button>
+              </span>
+            </div>
           </div>
           <div class="cfg-tip">
             <span class="tip-line"><strong>①</strong> 点顶栏「保存 XML」时写这里。留空即弹另存为。</span>
             <span class="tip-line"><strong>②</strong> 点顶栏「生成 C++ 工程」时写这里。生成物:Agent 类骨架 + 注册 + BT/FSM XML + main + CMakeLists。</span>
+            <span class="tip-line"><strong>③</strong> 设计页顶栏「导出XML」时写这里 —— 单树 <span class="mono">.bt.xml</span> / <span class="mono">.fsm.xml</span>,与 C++ 工程独立。常指向老引擎 ModelDatabase。</span>
           </div>
         </div>
 
@@ -784,6 +809,14 @@ ctest --test-dir build -C Release --output-on-failure</pre>
               </div>
               <span class="fld-hint">生成物:Agent 类骨架(.h/.cpp) + RegisterFunctions + BT/FSM XML + main.cpp + CMakeLists。</span>
             </label>
+            <label class="fld">
+              <span>③ BT/FSM XML 导出目录 <em class="muted-2">·设计页「导出XML」目标目录(独立于 C++ 工程)</em></span>
+              <div class="pick">
+                <input class="input" v-model="newCfg.exportXmlDir" placeholder="如 F:/0411/ccc/FZFOSimModel/ModelDatabase" />
+                <button class="btn tiny" @click="pickExportXmlDir('new')">📁 选择目录…</button>
+              </div>
+              <span class="fld-hint">单树导出物:<code>&lt;树名&gt;.bt.xml</code> / <code>&lt;树名&gt;.fsm.xml</code>。常指向老引擎 ModelDatabase 目录,导出即用。留空则每次导出弹选择目录。</span>
+            </label>
           </div>
         </section>
       </div>
@@ -864,6 +897,14 @@ ctest --test-dir build -C Release --output-on-failure</pre>
                 <button class="btn tiny" @click="pickExportDir('cfg')">📁 选择目录…</button>
               </div>
               <span class="fld-hint">生成物:Agent 类骨架 + 注册函数 + BT/FSM XML + main.cpp + CMakeLists。</span>
+            </label>
+            <label class="fld">
+              <span>③ BT/FSM XML 导出目录 <em class="muted-2">·设计页「导出XML」目标目录(独立于 C++ 工程)</em></span>
+              <div class="pick">
+                <input class="input" v-model="cfg.exportXmlDir" placeholder="如 F:/0411/ccc/FZFOSimModel/ModelDatabase" />
+                <button class="btn tiny" @click="pickExportXmlDir('cfg')">📁 选择目录…</button>
+              </div>
+              <span class="fld-hint">单树导出物:<code>&lt;树名&gt;.bt.xml</code> / <code>&lt;树名&gt;.fsm.xml</code>。留空则每次弹目录选择器。</span>
             </label>
           </div>
         </section>
