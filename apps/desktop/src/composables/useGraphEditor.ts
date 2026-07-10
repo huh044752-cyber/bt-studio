@@ -301,8 +301,8 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
       ev.preventDefault();
       showNodeMenu(id, ev.clientX, ev.clientY);
     });
-    // 点击空白 / 平移 / 缩放时关闭菜单。
-    graph.on("blank:click", () => hideMenu());
+    // 点击空白 / 平移 / 缩放时关闭菜单。空白点击同时清选,让新节点自然挂到 Root。
+    graph.on("blank:click", () => { hideMenu(); ws.selectedNodeId = ""; });
     graph.on("blank:mousedown", () => hideMenu());
     graph.on("scale", () => hideMenu());
     graph.on("translate", () => hideMenu());

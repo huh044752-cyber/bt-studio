@@ -53,12 +53,7 @@ function acceptable(childType: string): { ok: boolean; reason?: string } {
 }
 
 function onDragStart(e: DragEvent, nodeType: string) {
-  const acc = acceptable(nodeType);
-  if (!acc.ok) {
-    // 主动阻断:避免"看似可拖但落地失败"。
-    e.preventDefault();
-    return;
-  }
+  // 始终允许拖:onDrop 里会智能选父(选中→后代→Root)。这里只透传类型。
   e.dataTransfer?.setData("application/x-node-type", nodeType);
   if (e.dataTransfer) e.dataTransfer.effectAllowed = "copy";
 }
@@ -82,10 +77,48 @@ function tipFor(d: ReturnType<typeof defaultRegistry.get>): string {
 }
 
 function addToSelected(nodeType: string) {
-  const acc = acceptable(nodeType);
-  if (!acc.ok) return;
-  const sel = ws.selectedNodeId || ws.currentTree?.rootNodeId;
-  ws.run({ kind: "AddNode", nodeType, parentNodeId: sel });
+  // 双击也走"智能选父":选中不接受 → 找有容量的可组合后代 → 再回落到 Root。
+  const t = ws.currentTree;
+  if (!t) return;
+  const seed = ws.selectedNodeId || t.rootNodeId;
+  const parent = findAcceptableParent(seed, nodeType);
+  if (!parent) return;
+  const res = ws.run({ kind: "AddNode", nodeType, parentNodeId: parent });
+  if (res?.ok && res.createdNodeId) ws.selectedNodeId = res.createdNodeId;
+}
+
+/**
+ * 从 seed 出发,找第一个能收 childType 的父节点。
+ *  1) seed 自身可收 → 用 seed
+ *  2) 沿 childOrder 深度优先 → 第一个可收的可组合后代
+ *  3) 回落 Root
+ * 都不行 → null(整棵树都没地方挂)。
+ */
+function findAcceptableParent(seedId: string, childType: string): string | null {
+  const t = ws.currentTree;
+  if (!t) return null;
+  const kind = t.projectKind ?? "behavior_tree";
+  const canTake = (pid: string): boolean => {
+    const p = t.nodes[pid];
+    if (!p) return false;
+    const def = defaultRegistry.get(p.nodeType);
+    if (!def || def.maxChildren <= 0) return false;
+    if (p.childOrder.length >= def.maxChildren) return false;
+    return validateConnectionRule(p.nodeType, childType, kind).ok;
+  };
+  if (canTake(seedId)) return seedId;
+  const seen = new Set<string>();
+  const stack = [seedId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (id !== seedId && canTake(id)) return id;
+    const n = t.nodes[id];
+    if (n) for (const c of n.childOrder) stack.push(c);
+  }
+  if (t.rootNodeId !== seedId && canTake(t.rootNodeId)) return t.rootNodeId;
+  return null;
 }
 
 const categories = computed(() => {
@@ -111,8 +144,8 @@ const categories = computed(() => {
           v-for="d in defs"
           :key="d.nodeType"
           class="node-item"
-          :class="{ blocked: !acceptable(d.nodeType).ok }"
-          :draggable="acceptable(d.nodeType).ok"
+          :class="{ soft: !acceptable(d.nodeType).ok }"
+          draggable="true"
           :title="tipFor(d)"
           @dragstart="onDragStart($event, d.nodeType)"
           @dblclick="addToSelected(d.nodeType)"
@@ -131,7 +164,7 @@ const categories = computed(() => {
       </div>
     </div>
     <div class="hint muted-2">
-      拖拽到画布 / 双击 添加为选中节点的子。灰色 = 当前父不接受。
+      拖到画布 / 双击 都会自动挂到"选中→后代→Root"里第一个有容量的父。淡色 = 当前选中不接受,会自动向下找合适位置。
     </div>
   </div>
 </template>
@@ -176,6 +209,8 @@ const categories = computed(() => {
   background: transparent;
   border-color: transparent;
 }
+.node-item.soft { opacity: 0.62; }
+.node-item.soft:hover { opacity: 0.9; }
 .parent-hint {
   font-size: 11px;
   padding: 4px 6px;

@@ -10,6 +10,7 @@ import ActionButton from "@/components/common/ActionButton.vue";
 import ModalDialog from "@/components/common/ModalDialog.vue";
 import PageHelpButton from "@/components/common/PageHelpButton.vue";
 import { writeArtifact } from "@/services/tauri";
+import { defaultRegistry, validateConnectionRule } from "@btstudio/bt-core";
 
 const ws = useWorkspaceStore();
 const c = useConsoleStore();
@@ -127,6 +128,38 @@ function onDragOverCanvas(e: DragEvent) {
   canvasDragOver.value = true;
 }
 function onDragLeaveCanvas() { canvasDragOver.value = false; }
+
+/**
+ * 智能选父:从 seed 出发,自身可收 → seed;否则深度优先在其子树里找;
+ * 再回落 Root。用于"用户选了个叶子(Action),拖了 Sequence 也能落"这种场景。
+ */
+function findAcceptableParent(seedId: string, childType: string): string | null {
+  const t = ws.currentTree;
+  if (!t) return null;
+  const kind = t.projectKind ?? "behavior_tree";
+  const canTake = (pid: string): boolean => {
+    const p = t.nodes[pid];
+    if (!p) return false;
+    const def = defaultRegistry.get(p.nodeType);
+    if (!def || def.maxChildren <= 0) return false;
+    if (p.childOrder.length >= def.maxChildren) return false;
+    return validateConnectionRule(p.nodeType, childType, kind).ok;
+  };
+  if (canTake(seedId)) return seedId;
+  const seen = new Set<string>();
+  const stack = [seedId];
+  while (stack.length) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    if (id !== seedId && canTake(id)) return id;
+    const n = t.nodes[id];
+    if (n) for (const c of n.childOrder) stack.push(c);
+  }
+  if (t.rootNodeId !== seedId && canTake(t.rootNodeId)) return t.rootNodeId;
+  return null;
+}
+
 function onDrop(e: DragEvent) {
   e.preventDefault();
   canvasDragOver.value = false;
@@ -134,11 +167,18 @@ function onDrop(e: DragEvent) {
   if (!nodeType) return;
   const graph = editor.graphRef.value;
   const p = graph ? graph.clientToLocal(e.clientX, e.clientY) : { x: 240, y: 240 };
-  // 关键修:拖到画布不再造孤儿。优先挂选中节点,否则挂 Root。
-  // 若父不能收(容量满 / 类型规则不合),命令层会 fail —— 转达到 console 而非静默漏。
-  const parentNodeId = ws.selectedNodeId || ws.currentTree?.rootNodeId;
-  const res = ws.run({ kind: "AddNode", nodeType, parentNodeId, x: p.x, y: p.y });
-  if (!res?.ok) c.warning("canvas", `不能创建 ${nodeType}:${res?.reason ?? "未知原因"}`);
+  const t = ws.currentTree;
+  if (!t) { c.warning("canvas", "当前没有树,先在左侧新建一棵"); return; }
+  const seed = ws.selectedNodeId || t.rootNodeId;
+  const parent = findAcceptableParent(seed, nodeType);
+  if (!parent) {
+    c.warning("canvas", `没有能收 ${nodeType} 的父节点(容量已满或类型规则不合)`);
+    return;
+  }
+  const res = ws.run({ kind: "AddNode", nodeType, parentNodeId: parent, x: p.x, y: p.y });
+  if (!res?.ok) { c.warning("canvas", `创建 ${nodeType} 失败:${res?.reason ?? "未知"}`); return; }
+  // 自动选中新节点 → 下一次拖会自然向下级联,不再"选中 Root 后所有子容量满就没法拖"。
+  if (res.createdNodeId) ws.selectedNodeId = res.createdNodeId;
 }
 
 // 新建工程弹窗(行为树 / 状态机)
