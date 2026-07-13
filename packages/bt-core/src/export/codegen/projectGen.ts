@@ -1758,6 +1758,11 @@ ${inc || "// (无用户类)"}
 #include <vector>
 #include <memory>
 #include <filesystem>
+#if defined(FOSIM_ENABLE_RUNTIME_LOGS)
+// 直接引擎侧头 —— 编译期宏 + 运行期 enabled/console_enabled 都要开,才能真正打到 stdout。
+// (ConfigureRuntimeLogFromEnvironment 默认读环境变量,enabled=false → 一片静默。这里显式覆盖。)
+#include "FOSim/Engine/core/logging/runtime_summary_log.h"
+#endif
 
 static std::string ReadFile(const std::string& path) {
     std::ifstream f(path);
@@ -1783,6 +1788,20 @@ static bool IsFsmPath(const std::string& p) {
 }
 
 int main(int argc, char** argv) {
+#if defined(FOSIM_ENABLE_RUNTIME_LOGS)
+    // 显式开日志到 stdout —— 不再依赖 FOSIM_RUNTIME_LOGS/FOSIM_RUNTIME_LOG_CONSOLE 环境变量。
+    // enabled=true / console_enabled=true / level=Trace / categories="" (=全类别)。
+    fosim::runtime::ConfigureRuntimeLog(
+        /*enabled=*/true,
+        /*level=*/fosim::runtime::LogLevel::Trace,
+        /*console_enabled=*/true,
+        /*file_path=*/"",
+        /*categories=*/"",
+        /*frame_trace_enabled=*/true);
+    std::cout << "[main] runtime logs: ENABLED (level=Trace, console=on)\\n";
+#else
+    std::cout << "[main] runtime logs: COMPILED-OUT (rebuild with -DFOSIM_ENABLE_RUNTIME_LOGS=ON)\\n";
+#endif
     // ② 静态注册:所有 Agent 类 .cpp 里 FOSIM_REGISTER_AGENT(ClassName) 全局对象在此之前已构造。
     CyberAgentRegistry::instance().RegisterAll();
     std::cout << "[main] agents registered: " << CyberAgentRegistry::instance().All().size() << "\\n";
@@ -1870,6 +1889,41 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # 全局加 /utf-8 让 MSVC 同时按 UTF-8 解析源文件并生成 UTF-8 执行字符集。
 if(MSVC)
     add_compile_options(/utf-8)
+endif()
+
+# --- FOSim runtime logging: 让 <FOSim/Engine/core/logging/runtime_summary_log.h> 里
+# \`#if defined(FOSIM_ENABLE_RUNTIME_LOGS)\` 真正生效。
+# 引擎侧 FOSimEngine/CMakeLists.txt 只 option()/message() 声明了变量,
+# 却没 target_compile_definitions() 下发,所有 FOSIM_LOG_* 全部走 else 分支的 do{}while(0),
+# 因此运行时看不到任何日志。这里在整个 GeneratedCpp 树里统一注入,
+# runtime / engine-core / types / app / tick_check 全部受益。
+# 默认 Trace 级(=0)——初次接通引擎,把日志开到最大定位问题;稳定后再调 -DFOSIM_LOG_COMPILE_LEVEL=Warn。
+option(FOSIM_ENABLE_RUNTIME_LOGS "Enable FOSim runtime log macros" ON)
+set(FOSIM_LOG_COMPILE_LEVEL "0" CACHE STRING
+    "Minimum FOSim log level compiled in: 0=Trace, 1=Debug, 2=Info, 3=Warn, 4=Error, 5=Fatal")
+string(TOLOWER "\${FOSIM_LOG_COMPILE_LEVEL}" _fosim_lvl_norm)
+if(_fosim_lvl_norm STREQUAL "trace")
+    set(_fosim_lvl_val 0)
+elseif(_fosim_lvl_norm STREQUAL "debug")
+    set(_fosim_lvl_val 1)
+elseif(_fosim_lvl_norm STREQUAL "info")
+    set(_fosim_lvl_val 2)
+elseif(_fosim_lvl_norm STREQUAL "warn" OR _fosim_lvl_norm STREQUAL "warning")
+    set(_fosim_lvl_val 3)
+elseif(_fosim_lvl_norm STREQUAL "error")
+    set(_fosim_lvl_val 4)
+elseif(_fosim_lvl_norm STREQUAL "fatal")
+    set(_fosim_lvl_val 5)
+elseif(_fosim_lvl_norm MATCHES "^[0-5]$")
+    set(_fosim_lvl_val \${_fosim_lvl_norm})
+else()
+    message(FATAL_ERROR "Invalid FOSIM_LOG_COMPILE_LEVEL='\${FOSIM_LOG_COMPILE_LEVEL}'")
+endif()
+if(FOSIM_ENABLE_RUNTIME_LOGS)
+    add_compile_definitions(FOSIM_ENABLE_RUNTIME_LOGS FOSIM_LOG_COMPILE_LEVEL=\${_fosim_lvl_val})
+    message(STATUS "FOSim runtime logs: ON, compile level = \${FOSIM_LOG_COMPILE_LEVEL} (\${_fosim_lvl_val})")
+else()
+    message(STATUS "FOSim runtime logs: OFF")
 endif()
 
 # ① 依赖库:BT/FSM 解析+映射+调度 + MAL(默认自包含,可独立编译)
