@@ -417,6 +417,13 @@ function setOutputVar(bindingIndex: number, variableId: string) {
 .props {
   height: 100%;
   padding: 4px 2px;
+  min-width: 0;
+}
+.props :deep(.select),
+.props :deep(.input) {
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 .head {
   display: flex;
@@ -429,6 +436,16 @@ function setOutputVar(bindingIndex: number, variableId: string) {
   background: linear-gradient(90deg, rgba(94, 179, 255, 0.14), rgba(94, 179, 255, 0.02));
   border: 1px solid var(--line-soft);
   border-left: 3px solid var(--accent, #5eb3ff);
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.head > .tag { flex-shrink: 0; }
+.head .mono {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 .head .tag {
   font-weight: 600;
@@ -543,10 +560,19 @@ function setOutputVar(bindingIndex: number, variableId: string) {
   align-items: center;
   gap: 6px;
   margin-bottom: 4px;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
+.binding-row > .tag,
+.binding-row > .bname { flex-shrink: 0; }
+.binding-row .select,
+.binding-row .input { min-width: 0; flex: 1 1 auto; }
 .bname {
   font-size: 11.5px;
   min-width: 90px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 /* .input.tiny 高度/字号统一由 theme.css 提供(30px/12px)。 */
 </style>

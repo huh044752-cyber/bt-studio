@@ -84,12 +84,18 @@ defineProps<{
   color: var(--text-primary);
   letter-spacing: 0.01em;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
 }
 .pb-sub {
   font-size: 11.5px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 .pb-actions {
   display: flex;
@@ -97,5 +103,9 @@ defineProps<{
   gap: var(--space-2);
   margin-left: auto;
   flex-wrap: wrap;
+  justify-content: flex-end;
+  flex: 1 1 auto;
 }
+.pb-actions > * { flex-shrink: 0; }
+.pb-actions > .input { min-width: 120px; }
 </style>

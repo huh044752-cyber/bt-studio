@@ -91,7 +91,10 @@ function jump(logId: string) {
   gap: 5px;
   padding: 5px 8px;
   border-bottom: 1px solid var(--line-soft);
+  flex-wrap: wrap;
 }
+.console-bar > * { flex-shrink: 0; }
+.console-bar .btn { white-space: nowrap; }
 .title {
   font-size: 12px;
   margin-right: 6px;
@@ -118,7 +121,12 @@ function jump(logId: string) {
   padding: 2px 4px;
   border-radius: 5px;
   align-items: center;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
+.log-line > .ts,
+.log-line > .tag,
+.log-line > .cat { flex-shrink: 0; white-space: nowrap; }
 .log-line.jumpable {
   cursor: pointer;
 }
@@ -135,8 +143,13 @@ function jump(logId: string) {
 .cat {
   font-size: 11px;
   min-width: 64px;
+  flex: 0 0 auto;
 }
 .msg {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>

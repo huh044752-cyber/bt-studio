@@ -72,12 +72,17 @@ function jump(row: Row) {
   align-items: center;
   padding: 5px 6px;
   border-bottom: 1px solid var(--line-soft);
+  flex-wrap: wrap;
 }
+.bar > * { flex-shrink: 0; }
+.bar .btn { white-space: nowrap; }
 .title {
   font-size: 12px;
   margin-right: 4px;
+  white-space: nowrap;
 }
 .sep {
+  flex: 0 0 1px;
   width: 1px;
   height: 14px;
   background: var(--line-soft);
@@ -89,6 +94,8 @@ function jump(row: Row) {
   color: var(--accent);
   border-radius: 4px;
   padding: 0 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .list {
   flex: 1;
@@ -104,7 +111,13 @@ function jump(row: Row) {
   padding: 3px 4px;
   border-radius: 5px;
   font-size: 12px;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
+.prob-line > .tag,
+.prob-line > .tree-tag,
+.prob-line > .src,
+.prob-line > .nt { flex-shrink: 0; white-space: nowrap; }
 .prob-line.jumpable {
   cursor: pointer;
 }
@@ -114,9 +127,14 @@ function jump(row: Row) {
 .src {
   font-size: 10.5px;
   min-width: 70px;
+  flex: 0 0 auto;
 }
 .msg {
-  flex: 1;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .nt {
   font-size: 10.5px;

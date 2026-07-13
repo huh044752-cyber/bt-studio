@@ -676,7 +676,9 @@ function validationForTree(treeId: string) {
 }
 .asm-head .uc-ico { font-size: 18px; color: var(--accent); flex: 0 0 auto; }
 .asm-head-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.asm-head-row1 { display: flex; align-items: baseline; gap: 8px; }
+.asm-head-row1 { display: flex; align-items: baseline; gap: 8px; flex-wrap: nowrap; min-width: 0; }
+.asm-head-row1 > * { flex-shrink: 0; white-space: nowrap; }
+.asm-head-row1 .asm-title { overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .asm-title { font-size: 14px; color: var(--text-primary); font-weight: 600; }
 .asm-head-row2 { font-size: 11px; }
 
@@ -764,7 +766,8 @@ function validationForTree(treeId: string) {
 .fold[open] > .fold-t { border-bottom: 1px solid var(--border-subtle); border-radius: 8px 8px 0 0; }
 .fold-t .chev { display: inline-block; width: 12px; font-size: 10px; color: var(--text-tertiary); transition: transform 0.15s; }
 .fold:not([open]) > .fold-t .chev { transform: rotate(-90deg); }
-.fold-t .tt { font-weight: 600; color: var(--text-primary); }
+.fold-t .tt { font-weight: 600; color: var(--text-primary); white-space: nowrap; }
+.fold-t .muted-3 { white-space: nowrap; flex: 0 0 auto; }
 .fold-t .badge { padding: 1px 6px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); font-size: 11px; font-weight: 600; }
 .fold-b { padding: 8px 10px; }
 
@@ -799,8 +802,9 @@ function validationForTree(treeId: string) {
 .unit-item { padding: 6px 8px; border-radius: 7px; cursor: pointer; border: 1px solid transparent; margin-bottom: 3px; }
 .unit-item:hover { background: var(--surface-3); }
 .unit-item.active { background: var(--accent-soft); border-color: var(--accent-border); }
-.ui-row { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; }
-.ui-meta { font-size: 11px; margin-top: 2px; }
+.ui-row { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; flex-wrap: nowrap; min-width: 0; }
+.ui-row > .tag { flex-shrink: 0; }
+.ui-meta { font-size: 11px; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .u-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* --- 组装台内容布局 --- */
@@ -843,22 +847,36 @@ function validationForTree(treeId: string) {
 .vrow {
   display: flex; align-items: center; gap: 8px;
   font-size: 12px; padding: 3px 4px; border-radius: 4px;
+  flex-wrap: nowrap; min-width: 0;
 }
+.vrow > .tag { flex-shrink: 0; }
 .vrow.error { background: var(--err-soft); }
 .vrow.ok { color: var(--text-secondary); }
-.vnode { min-width: 96px; font-weight: 500; }
-.vreason { color: var(--text-tertiary); margin-left: auto; max-width: 42%; }
+.vnode {
+  min-width: 0; max-width: 40%; font-weight: 500;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 0 auto;
+}
+.vreason {
+  color: var(--text-tertiary); margin-left: auto; max-width: 42%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 0 1 auto;
+}
 
-/* 货架 */
-.shelf { display: flex; flex-direction: column; gap: 4px; }
+/* 货架 —— 树多了自己内滚,决不把下方「挂接结果」推出视口 */
+.shelf {
+  display: flex; flex-direction: column; gap: 4px;
+  max-height: 260px; overflow-y: auto;
+  padding-right: 2px;
+}
 .shelf-item {
   display: flex; align-items: center; gap: 8px;
   padding: 6px 8px; border-radius: 6px; cursor: pointer; font-size: 12.5px;
   border: 1px solid transparent;
+  flex-wrap: nowrap; min-width: 0;
 }
+.shelf-item > .tag { flex-shrink: 0; }
+.shelf-item .cnt { margin-left: auto; font-size: 11px; flex-shrink: 0; white-space: nowrap; }
 .shelf-item:hover { background: var(--surface-3); }
 .shelf-item.on { background: var(--accent-soft); border-color: var(--accent-border); }
-.shelf-item .cnt { margin-left: auto; font-size: 11px; }
 
 /* 覆盖式挂接:工具栏文案标签 */
 .policy-hint { font-size: 11.5px; color: var(--text-secondary); padding: 3px 8px; border-radius: 10px; background: var(--surface-3); }
@@ -923,7 +941,12 @@ function validationForTree(treeId: string) {
 .res-badge.fsm { background: rgba(155,89,182,0.15); color: #b47dd8; }
 .res-badge.sdata { background: rgba(255,152,0,0.15); color: #d29244; }
 .res-badge.gbb { background: rgba(96,166,236,0.15); color: #60a6ec; }
-.res-name { font-weight: 600; color: var(--text-primary); flex: 0 0 auto; }
+.res-name {
+  font-weight: 600; color: var(--text-primary);
+  flex: 0 1 auto; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  max-width: 40%;
+}
 .res-arrow { color: var(--text-tertiary); flex: 0 0 auto; }
 .res-path {
   flex: 1; min-width: 0;

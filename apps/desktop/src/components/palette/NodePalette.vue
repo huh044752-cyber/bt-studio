@@ -100,7 +100,8 @@ const categories = computed(() => {
 </template>
 
 <style scoped>
-.palette { height: 100%; }
+.palette { height: 100%; min-width: 0; }
+.palette :deep(.input) { min-width: 0; max-width: 100%; box-sizing: border-box; }
 .cats { flex: 1; }
 .cat { margin-bottom: var(--space-2); }
 .cat-title {
@@ -117,6 +118,8 @@ const categories = computed(() => {
   cursor: grab;
   border: 1px solid transparent;
   user-select: none;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 .node-item:active { cursor: grabbing; }
 .node-item:hover {
@@ -139,7 +142,18 @@ const categories = computed(() => {
 .dot.warn { background: var(--warn); }
 .dot.err { background: var(--err); }
 .dot.muted { background: var(--text-tertiary); }
-.nm { flex: 1; font-size: 12.5px; }
-.kind { font-size: 10px; }
+.nm {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kind {
+  font-size: 10px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
 .hint { font-size: 10.5px; padding: 4px 2px; }
 </style>

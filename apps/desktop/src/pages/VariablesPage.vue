@@ -337,7 +337,7 @@ function toggleLink(bbId: string) {
   height: 100%;
   min-height: 0;
 }
-.narrow { width: 220px; }
+.narrow { width: 220px; flex: 0 0 220px; min-width: 0; }
 
 .grid {
   display: grid;
@@ -456,7 +456,10 @@ function toggleLink(bbId: string) {
   width: 100%;
   border-collapse: collapse;
   font-size: 12.5px;
+  table-layout: fixed;
 }
+.var-tbl input,
+.var-tbl select { min-width: 0; width: 100%; box-sizing: border-box; }
 .var-tbl th {
   position: sticky;
   top: 0;
@@ -470,6 +473,9 @@ function toggleLink(bbId: string) {
   text-transform: uppercase;
   letter-spacing: 0.4px;
   border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .var-tbl td {
   padding: 6px 10px;

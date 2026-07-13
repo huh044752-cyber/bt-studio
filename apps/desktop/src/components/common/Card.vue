@@ -68,24 +68,44 @@ defineProps<{
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border-subtle);
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: hidden;
 }
 .card-title-wrap {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
   min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
 }
 .card-title {
   font-size: 12.5px;
   color: var(--text-primary);
   letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 0 1 auto;
 }
-.card-sub { font-size: 11px; }
+.card-sub {
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+  flex: 1 1 auto;
+}
 .card-actions {
   display: flex;
   gap: var(--space-2);
   margin-left: auto;
+  flex: 0 0 auto;
+  align-items: center;
 }
+.card-actions > * { flex-shrink: 0; }
 .card-body {
   padding: var(--space-3);
   flex: 1;
