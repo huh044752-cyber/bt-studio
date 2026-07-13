@@ -135,7 +135,12 @@ export class GraphCommandBus {
       case "DeleteNode": {
         const node = this.tree.nodes[cmd.nodeId];
         if (!node) return fail("节点不存在");
-        // 允许删除 Root(应用侧的清理:rootNodeId 会被 apply 里清空)。
+        // Root 是一棵树的唯一入口(BT/FSM 共此规则),不允许删除:
+        //   - 命令层前置拦下 → UI/快捷键/右键都能拿到明确 reason,不需要各调用点自查
+        //   - 也从根上避免 rootNodeId 被清空后一堆节点变孤儿再被校验"未悬挂"轰炸
+        if (node.nodeType === "Root") {
+          return fail("Root 是树的唯一入口,不能删除(如需重建树,请在左侧新建/删除整棵树)");
+        }
         return { ok: true, affectedNodeIds: this.getAffectedNodes(cmd) };
       }
       case "ConnectNodes": {
@@ -351,7 +356,7 @@ export class GraphCommandBus {
       this.tree.editorMeta.nodeLayouts = this.tree.editorMeta.nodeLayouts.filter(
         (l) => l.nodeId !== id,
       );
-      // 删的是 Root → 清 rootNodeId,树进入"无根"状态(用户可再拖新 Root/Sequence)。
+      // Root 已被 canExecute 拦下,这里不会走到;保留断言防御:命令层是唯一持久化入口。
       if (this.tree.rootNodeId === id) this.tree.rootNodeId = "";
     }
   }

@@ -264,9 +264,13 @@ export function serializeGlobalBlackboardsXml(blackboards: BlackboardDef[]): str
 export function serializeBehaviorTreeXml(def: BehaviorTreeDef): string {
   if (!def.root) throw new Error("BehaviorTreeDef.root 为空,无法序列化");
   const lines: string[] = [XML_HEADER];
-  // <Root> 属性:id / projectType / name / btTemplateId / modelId。
-  // 类型信息落在每个叶子的 className 上,由挂接闸门校验;Root 层不做绑类。
-  let rootOpen = `<Root${attr("id", def.id)}${attr("projectType", def.projectType)}${attr("name", def.name)}${attr("btTemplateId", def.behaviorTreeTemplateId)}${attr("modelId", def.modelId)}>`;
+  // <Root> 属性:id / projectType / name / btTemplateId / modelId / cognition。
+  // 类型信息落在每个叶子的 className 上,由挂接闸门校验;Root 层的 cognition 属性用于
+  // 引擎 BehaviorNodeAgent 调 EmployCog(cognition_name):
+  //   bt_xml_loader.cpp:236 从 <Root cognition="X"> 读入 tree_def_->cognition,
+  //   behavior_node_agent.cpp:108 赋给 agent->cognition_name。
+  // 缺此属性时 EmployCog 拿不到类名,想定挂载时找不到 Cognition 组件。
+  let rootOpen = `<Root${attr("id", def.id)}${attr("projectType", def.projectType)}${attr("name", def.name)}${attr("btTemplateId", def.behaviorTreeTemplateId)}${attr("modelId", def.modelId)}${attr("cognition", def.cognition)}>`;
   lines.push(rootOpen);
   lines.push(serializeBlackboards(def.blackboards, 1));
 

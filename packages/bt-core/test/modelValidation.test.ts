@@ -26,7 +26,7 @@ describe("模型校验(R3):节点 类+方法 必须真实存在", () => {
     const a = bus.execute({ kind: "AddNode", nodeType: "Action", parentNodeId: tree.rootNodeId });
     bus.execute({ kind: "UpdateNodeProperty", nodeId: a.createdNodeId!, patch: { targetSelector: { modelClass: "FZAirFighter" } } });
     bus.execute({ kind: "BindFunction", nodeId: a.createdNodeId!, functionRef: "Engage" });
-    const issues = ve.validate(bus.getTree(), { mode: "standalone", catalogs: catalog() });
+    const issues = ve.validate(bus.getTree(), { mode: "standalone", catalogs: catalog(), phase: "export" });
     expect(issues.some((i) => /不存在于类/.test(i.message))).toBe(false);
   });
 
@@ -36,7 +36,7 @@ describe("模型校验(R3):节点 类+方法 必须真实存在", () => {
     const a = bus.execute({ kind: "AddNode", nodeType: "Action", parentNodeId: tree.rootNodeId });
     bus.execute({ kind: "UpdateNodeProperty", nodeId: a.createdNodeId!, patch: { targetSelector: { modelClass: "FZAirFighter" } } });
     bus.execute({ kind: "BindFunction", nodeId: a.createdNodeId!, functionRef: "NoSuchMethod" });
-    const issues = ve.validate(bus.getTree(), { mode: "standalone", catalogs: catalog() });
+    const issues = ve.validate(bus.getTree(), { mode: "standalone", catalogs: catalog(), phase: "export" });
     expect(issues.some((i) => i.level === "error" && /不存在于类/.test(i.message))).toBe(true);
   });
 
@@ -45,7 +45,7 @@ describe("模型校验(R3):节点 类+方法 必须真实存在", () => {
     const bus = new GraphCommandBus(tree);
     const a = bus.execute({ kind: "AddNode", nodeType: "Action", parentNodeId: tree.rootNodeId });
     bus.execute({ kind: "BindFunction", nodeId: a.createdNodeId!, functionRef: "Engage" });
-    const issues = ve.validate(bus.getTree(), { mode: "standalone", catalogs: catalog() });
+    const issues = ve.validate(bus.getTree(), { mode: "standalone", catalogs: catalog(), phase: "export" });
     expect(issues.some((i) => /未选择类/.test(i.message))).toBe(true);
   });
 });

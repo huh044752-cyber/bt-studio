@@ -20,6 +20,15 @@ const COLOR: Record<string, string> = {
   muted: "#7d8590",
 };
 
+/** 右键菜单需要的页面级动作。DesignPage 通过 setMenuActions 注入。 */
+export interface EditorMenuActions {
+  copy: () => void;
+  paste: () => void;
+  duplicate: (nodeId: string) => void;
+  validate: () => void;
+  hasClipboard: () => boolean;
+}
+
 const nodeCellId = (id: string) => `ncell_${id}`;
 const edgeCellId = (id: string) => `ecell_${id}`;
 // FSM 转移目标的合成"Goto"虚线边(非结构边,源自 transitionTarget 引用)。
@@ -181,7 +190,19 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
   }
 
   // --- 右键菜单(DOM 浮层)---
+  //
+  // 菜单分两种上下文:
+  //   1. 节点右键 `showNodeMenu(nodeId, x, y)` —— 对特定节点的动作(复制/克隆/删/断线/居中…)
+  //   2. 空白右键 `showBlankMenu(x, y)`         —— 画布级动作(粘贴/撤销/重做/适配/布局/校验)
+  // 菜单依赖外部动作(比如 copy 需要读画布视口中心),但 useGraphEditor 不知道 DesignPage 里
+  // 的复制/粘贴/校验实现。为了避免耦合上层,通过 `setMenuActions()` 注入回调 —— DesignPage
+  // 在 onMounted 后把 copy/paste/duplicate/validate 塞进来。菜单在 show 时按当前 actions 组建条目。
   let menuEl: HTMLDivElement | null = null;
+  let actions: EditorMenuActions | null = null;
+  function setMenuActions(a: EditorMenuActions): void {
+    actions = a;
+  }
+
   function ensureMenu(): HTMLDivElement {
     if (!menuEl) {
       menuEl = document.createElement("div");
@@ -189,7 +210,7 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
       Object.assign(menuEl.style, {
         position: "fixed",
         zIndex: "10000",
-        minWidth: "140px",
+        minWidth: "180px",
         padding: "4px",
         borderRadius: "8px",
         background: "#1a1f27",
@@ -205,56 +226,186 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
   function hideMenu(): void {
     if (menuEl) menuEl.style.display = "none";
   }
-  function menuItem(label: string, danger: boolean, onClick: () => void): HTMLDivElement {
+  function menuItem(
+    label: string,
+    onClick: () => void,
+    opts: { danger?: boolean; disabled?: boolean; hint?: string } = {},
+  ): HTMLDivElement {
     const it = document.createElement("div");
-    it.textContent = label;
+    // hint(如快捷键)灰色右侧对齐 —— 用 flex 布局
+    const left = document.createElement("span");
+    left.textContent = label;
+    it.appendChild(left);
+    if (opts.hint) {
+      const right = document.createElement("span");
+      right.textContent = opts.hint;
+      Object.assign(right.style, {
+        marginLeft: "auto",
+        color: "#6f8598",
+        fontSize: "11px",
+        letterSpacing: "0.3px",
+      } as CSSStyleDeclaration);
+      it.appendChild(right);
+    }
     Object.assign(it.style, {
+      display: "flex",
+      alignItems: "center",
+      gap: "10px",
       padding: "6px 10px",
       borderRadius: "6px",
-      cursor: "pointer",
-      color: danger ? "#ff8a8a" : "#dfe9f5",
+      cursor: opts.disabled ? "not-allowed" : "pointer",
+      color: opts.disabled ? "#4a5568" : opts.danger ? "#ff8a8a" : "#dfe9f5",
       whiteSpace: "nowrap",
+      opacity: opts.disabled ? "0.55" : "1",
     } as CSSStyleDeclaration);
-    it.addEventListener("mouseenter", () => (it.style.background = "rgba(76,141,255,0.12)"));
-    it.addEventListener("mouseleave", () => (it.style.background = "transparent"));
-    it.addEventListener("mousedown", (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      hideMenu();
-      onClick();
-    });
+    if (!opts.disabled) {
+      it.addEventListener("mouseenter", () => (it.style.background = "rgba(76,141,255,0.12)"));
+      it.addEventListener("mouseleave", () => (it.style.background = "transparent"));
+      it.addEventListener("mousedown", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        hideMenu();
+        onClick();
+      });
+    }
     return it;
   }
-  function showNodeMenu(nodeId: string, x: number, y: number): void {
-    const tree = ws.currentTree;
-    const n = tree?.nodes[nodeId];
-    if (!n) return;
-    const el = ensureMenu();
-    el.innerHTML = "";
-    // 断开与父的连线(如果有父)—— 断开后节点变孤儿,不删除节点本身。
-    const parentId = tree ? findParentOf(tree, nodeId) : null;
-    if (parentId) {
-      el.appendChild(
-        menuItem("✂ 断开父连线", false, () => {
-          ws.run({ kind: "DisconnectNodes", parentNodeId: parentId, childNodeId: nodeId });
-        }),
-      );
-    }
-    // 删除节点(任何节点都可删,包括 Root;删 Root 时 tree.rootNodeId 会被清空)。
-    el.appendChild(
-      menuItem("🗑 删除节点", true, () => {
-        ws.run({ kind: "DeleteNode", nodeId });
-        if (ws.selectedNodeId === nodeId) ws.selectedNodeId = "";
-      }),
-    );
+  /** 分隔线 —— 语义分组。 */
+  function menuSep(): HTMLDivElement {
+    const s = document.createElement("div");
+    Object.assign(s.style, {
+      height: "1px",
+      margin: "4px 6px",
+      background: "rgba(148,163,184,0.14)",
+    } as CSSStyleDeclaration);
+    return s;
+  }
+  /**
+   * 定位菜单到 (x,y),做视口边界纠正。传入前先 display=block + 归零,才能拿到真实宽高。
+   */
+  function positionMenu(el: HTMLDivElement, x: number, y: number): void {
     el.style.display = "block";
-    // 视口边界纠正
     el.style.left = "0px";
     el.style.top = "0px";
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     el.style.left = `${Math.max(4, Math.min(x, window.innerWidth - w - 4))}px`;
     el.style.top = `${Math.max(4, Math.min(y, window.innerHeight - h - 4))}px`;
+  }
+
+  /**
+   * "删单节点 · 保留子" —— 把子节点提升到该节点的父下,再删该节点。
+   * 常见场景:临时插了个 Sequence 后想抽掉,让原来那批子直接挂原父。
+   * 失败降级:若父容量不足(接不下所有子),不动手,提示用户手动整理再试。
+   * Root 不允许(Root 是入口,提子等于让原 Root 消失)。
+   */
+  function deleteNodeKeepChildren(nodeId: string): void {
+    const tree = ws.currentTree;
+    const n = tree?.nodes[nodeId];
+    if (!tree || !n) return;
+    if (n.nodeType === "Root") {
+      console.warn("[design] Root 不支持保留子的删除,用整树删除代替");
+      return;
+    }
+    const parentId = findParentOf(tree, nodeId);
+    if (!parentId) {
+      console.warn("[design] 该节点没有父,无法'保留子'删除;请用整树删除");
+      return;
+    }
+    const parent = tree.nodes[parentId];
+    if (!parent) return;
+    const children = [...n.childOrder];
+    // 预检:父可用容量 = maxChildren - 现有子(减 1,因为该节点本身会被从父下摘掉)
+    const def = defaultRegistry.get(parent.nodeType);
+    const capacity = (def?.maxChildren ?? 64) - (parent.childOrder.length - 1);
+    if (children.length > capacity) {
+      console.warn(`[design] 父 ${parent.nodeType} 容量不足(需 ${children.length},剩 ${capacity})`);
+      return;
+    }
+    // 组批命令:先把每个子从旧父(=该节点)断开、接到新父;再断该节点自己;最后删。
+    // 用命令队列一次提交(store.runBatch),画布只 sync 一次。
+    const cmds: import("@btstudio/bt-core").GraphCommand[] = [];
+    for (const cid of children) {
+      cmds.push({ kind: "DisconnectNodes", parentNodeId: nodeId, childNodeId: cid });
+      cmds.push({ kind: "ConnectNodes", parentNodeId: parentId, childNodeId: cid });
+    }
+    cmds.push({ kind: "DisconnectNodes", parentNodeId: parentId, childNodeId: nodeId });
+    cmds.push({ kind: "DeleteNode", nodeId });
+    ws.runBatch(cmds, parentId);
+  }
+
+  /** 把画布视口居中到某节点 —— 长树导航常用。 */
+  function centerOnNode(nodeId: string): void {
+    const g = graphRef.value;
+    if (!g) return;
+    const cell = g.getCellById(nodeCellId(nodeId));
+    if (cell) {
+      // X6 有 centerCell,兼容不同版本用 as any 兜底
+      (g as unknown as { centerCell: (c: unknown) => void }).centerCell?.(cell);
+    }
+  }
+
+  function showNodeMenu(nodeId: string, x: number, y: number): void {
+    const tree = ws.currentTree;
+    const n = tree?.nodes[nodeId];
+    if (!n) return;
+    const el = ensureMenu();
+    el.innerHTML = "";
+    const isRoot = n.nodeType === "Root";
+    const parentId = tree ? findParentOf(tree, nodeId) : null;
+
+    // ── 编辑组:复制 / 克隆 / 粘贴(粘贴不接父,和顶栏同语义)
+    el.appendChild(menuItem("📋 复制", () => actions?.copy(), { hint: "Ctrl+C" }));
+    el.appendChild(menuItem("⎘ 复制并粘贴一份", () => actions?.duplicate(nodeId), { hint: "Ctrl+D", disabled: isRoot }));
+    el.appendChild(menuItem("📌 粘贴", () => actions?.paste(), { hint: "Ctrl+V", disabled: !actions?.hasClipboard() }));
+    el.appendChild(menuSep());
+
+    // ── 结构组:断父连线 / 删单节点保留子 / 删整个子树
+    if (parentId) {
+      el.appendChild(menuItem("✂ 断开父连线", () => {
+        ws.run({ kind: "DisconnectNodes", parentNodeId: parentId, childNodeId: nodeId });
+      }));
+    }
+    if (!isRoot && parentId && n.childOrder.length > 0) {
+      // 只有"非 Root + 有父 + 有子"才需要这个动作,否则退化为普通删除,不必展示
+      el.appendChild(menuItem("↑ 删除节点 · 保留子节点", () => deleteNodeKeepChildren(nodeId), {
+        hint: `${n.childOrder.length} 子提升`,
+      }));
+    }
+    // Root 由命令层的 canExecute 拒绝删除,菜单里就不展示避免困惑
+    if (!isRoot) {
+      el.appendChild(menuItem("🗑 删除节点(含子树)", () => {
+        ws.run({ kind: "DeleteNode", nodeId });
+        if (ws.selectedNodeId === nodeId) ws.selectedNodeId = "";
+      }, { danger: true, hint: "Delete" }));
+    }
+    el.appendChild(menuSep());
+
+    // ── 视图组:居中到该节点 / 校验
+    el.appendChild(menuItem("⊙ 居中显示", () => centerOnNode(nodeId)));
+    el.appendChild(menuItem("✓ 校验此树", () => actions?.validate()));
+
+    positionMenu(el, x, y);
+  }
+
+  /** 画布空白右键 —— 无节点上下文,展示全局动作。 */
+  function showBlankMenu(x: number, y: number): void {
+    const el = ensureMenu();
+    el.innerHTML = "";
+    const bus = ws.currentBus;
+    // 编辑组:粘贴(常用),撤销/重做
+    el.appendChild(menuItem("📌 粘贴", () => actions?.paste(), { hint: "Ctrl+V", disabled: !actions?.hasClipboard() }));
+    el.appendChild(menuItem("↶ 撤销", () => ws.undo(), { hint: "Ctrl+Z", disabled: !bus?.canUndo() }));
+    el.appendChild(menuItem("↷ 重做", () => ws.redo(), { hint: "Ctrl+Y", disabled: !bus?.canRedo() }));
+    el.appendChild(menuSep());
+    // 视图组:适配画布 / 重置缩放 / 自动布局
+    el.appendChild(menuItem("⤢ 适配画布", () => fit()));
+    el.appendChild(menuItem("↺ 重置缩放", () => resetZoom(), { hint: "1:1" }));
+    el.appendChild(menuItem("⇅ 自动布局", () => ws.layout()));
+    el.appendChild(menuSep());
+    // 校验
+    el.appendChild(menuItem("✓ 校验", () => actions?.validate()));
+    positionMenu(el, x, y);
   }
 
   async function init(container: HTMLElement): Promise<void> {
@@ -300,7 +451,7 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
       hideMenu();
     });
 
-    // 右键节点 → 上下文菜单(删除等)。行为树 / 状态机通用。
+    // 右键节点 → 节点上下文菜单(编辑/结构/视图三段)。行为树 / 状态机通用。
     graph.on("node:contextmenu", ({ node, e }) => {
       const id = (node.getData() as { nodeId?: string })?.nodeId;
       if (!id) return;
@@ -310,12 +461,20 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
       ev.preventDefault();
       showNodeMenu(id, ev.clientX, ev.clientY);
     });
-    // 点击空白 / 平移 / 缩放时关闭菜单。空白点击同时清选,让新节点自然挂到 Root。
+    // 右键空白 → 画布级动作(粘贴/撤销重做/适配/布局/校验)。
+    graph.on("blank:contextmenu", ({ e }) => {
+      hideTooltip();
+      const ev = e as unknown as MouseEvent;
+      ev.preventDefault();
+      showBlankMenu(ev.clientX, ev.clientY);
+    });
+    // 左键空白 = 清选 + 关菜单;右键的关菜单在下次左键或 blank:mousedown 走(见下)。
     graph.on("blank:click", () => { hideMenu(); ws.selectedNodeId = ""; });
+    // blank:mousedown 也关菜单,但不清 selection(用户可能 shift+左键切选未来扩展)。
     graph.on("blank:mousedown", () => hideMenu());
     graph.on("scale", () => hideMenu());
     graph.on("translate", () => hideMenu());
-    // 阻止画布容器的浏览器原生右键菜单。
+    // 阻止画布容器的浏览器原生右键菜单(X6 自己派发 blank:contextmenu / node:contextmenu)。
     container.addEventListener("contextmenu", (ev) => ev.preventDefault());
 
     // 悬停提示:显示节点描述(类型说明 + 名称 + 绑定函数/目标)。行为树与状态机通用。
@@ -531,6 +690,20 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
   function fit(): void {
     graphRef.value?.zoomToFit({ padding: 40, minScale: 0.3, maxScale: 1.4 });
   }
+  /**
+   * 当前画布视口中心对应的画布局部坐标(local coordinate)。
+   * 用于"粘贴到画布中心"—— 不受缩放 / 平移影响,始终落在当前可见区中间。
+   * 找不到画布时返回 null(初始化中),调用方应兜底为 (200,200)。
+   */
+  function viewportCenterLocal(): { x: number; y: number } | null {
+    const g = graphRef.value;
+    if (!g) return null;
+    const el = (g as unknown as { container: HTMLElement }).container;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    const p = g.clientToLocal({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+    return { x: p.x, y: p.y };
+  }
   function dispose(): void {
     graphRef.value?.dispose();
     graphRef.value = null;
@@ -544,5 +717,17 @@ export function useGraphEditor(ws: ReturnType<typeof useWorkspaceStore>) {
     }
   }
 
-  return { graphRef, init, sync, highlight, zoomBy, resetZoom, fit, dispose };
+  return {
+    graphRef,
+    init,
+    sync,
+    highlight,
+    zoomBy,
+    resetZoom,
+    fit,
+    viewportCenterLocal,
+    centerOnNode,
+    setMenuActions,
+    dispose,
+  };
 }

@@ -15,12 +15,40 @@ import {
   EMPTY_ALLOWED_MAL_TYPES,
 } from "../mal/malMapping.js";
 
+/**
+ * 校验阶段(phase):同一条规则在不同阶段严重度不同。
+ *
+ * - **editing**(默认):画布编辑、复制粘贴、拖线过程中的"实时校验"。
+ *   用户操作中间态里出现的"孤儿""必填未填""容量不足"是**过程正常态**,
+ *   一律降级为 warning —— 用户仍能在问题面板看到黄字提示,但不会
+ *   被红字轰炸(尤其粘贴子树后先落孤儿再手接父的场景)。
+ * - **export**:点导出/生成 C++ 前的闸门,所有 soft 项升级为 error,
+ *   保证导出物一定完整可跑。
+ *
+ * 硬规则(结构性错误,任何阶段都是 error):
+ *   - 缺 Root / 多 Root / Root 子数量不为 1
+ *   - 未注册节点类型 / 受限节点未替换
+ *   - 复合/装饰节点子数量违反 min/max(拒绝了本就不合法的结构)
+ *   - Parallel 阈值非法 / Subtree 引用缺失或循环 / IfElse-MonitorBranch 子数量
+ *   - MAL 值转换失败(输入的常量根本不是合法字面量)
+ *
+ * 软规则(editing 降 warning,export 升 error):
+ *   - 节点未悬挂(未连接到 Root)
+ *   - 叶子节点未绑定函数 / 未选类 / 方法不存在
+ *   - 必填参数未赋值
+ *   - 类型不匹配(输入 malType 与方法定义不一致等)
+ *   - 输出回写变量缺失 / 类型不匹配
+ */
+export type ValidationPhase = "editing" | "export";
+
 export interface ValidationContext {
   mode: StudioMode;
   catalogs?: CatalogBundle;
   /** 本树可见黑板(本地 + 已链接全局),用于变量引用解析 */
   blackboards?: Blackboard[];
   registry?: NodeRegistry;
+  /** 校验阶段:决定 soft 规则的严重度。缺省 editing。 */
+  phase?: ValidationPhase;
 }
 
 const FUNCTION_KINDS = new Set(["Action", "Condition", "ConditionTransform", "Wait"]);
@@ -40,6 +68,12 @@ export class ValidationEngine {
       extra: Partial<Issue> = {},
     ): void => {
       issues.push({ level, message, source: "ValidationEngine", treeId: tree.treeId, ...extra });
+    };
+    // soft 规则的严重度:editing 降级 warning,export 升 error。
+    const phase: ValidationPhase = ctx.phase ?? "editing";
+    const softLevel: Issue["level"] = phase === "export" ? "error" : "warning";
+    const softPush = (message: string, extra: Partial<Issue> = {}): void => {
+      push(softLevel, message, extra);
     };
 
     const registry = ctx.registry ?? this.registry;
@@ -70,14 +104,16 @@ export class ValidationEngine {
       this.validateNode(node, tree, ctx, registry, varIndex, push);
     }
 
-    // --- 孤儿(未悬挂)节点 = 错误,阻断导出 ---
+    // --- 孤儿(未悬挂)节点 —— **软规则** ---
+    // 编辑态:粘贴子树/新拖节点尚未接父是"过程中间态",红字轰炸反而干扰;
+    // 导出态:必须完整,升级 error 阻断导出。
     // 行为树:沿 childOrder 可达;状态机:还要沿转移节点的 transitionTarget 引用可达
     // (状态扁平、入口 State 为 Root 子,其余 State 经条件/状态跳转 Goto 到达)。
     const reachable = collectReachable(tree);
     for (const node of nodes) {
       if (node.nodeType === "Root") continue;
       if (!reachable.has(node.nodeId)) {
-        push("error", `节点未悬挂(未连接到 Root,孤立节点)`, {
+        softPush(`节点未悬挂(未连接到 Root,孤立节点)`, {
           nodeId: node.nodeId,
           nodeType: node.nodeType,
           source: "structure",
@@ -96,6 +132,11 @@ export class ValidationEngine {
     varIndex: Map<string, Variable>,
     push: (level: Issue["level"], message: string, extra?: Partial<Issue>) => void,
   ): void {
+    const phase: ValidationPhase = ctx.phase ?? "editing";
+    const softLevel: Issue["level"] = phase === "export" ? "error" : "warning";
+    const softPush = (message: string, extra: Partial<Issue> = {}): void => {
+      push(softLevel, message, extra);
+    };
     const at = (fieldPath?: string): Partial<Issue> => ({
       nodeId: node.nodeId,
       nodeType: node.nodeType,
@@ -136,10 +177,11 @@ export class ValidationEngine {
 
     // 函数绑定(Action/Condition/ConditionTransform/Wait/State/ConditionTransition):
     // Condition 已收敛为叶子节点(对齐 C++ 新引擎 bt_xml_loader:Condition 必须叶子;vue2 nodeConfig 也归入 condition 叶子类)。
+    // **全部走 softPush**:editing 阶段用户可能边拖边配,红字过早出现干扰;export 时才升 error。
     if (FUNCTION_KINDS.has(node.nodeType)) {
       const bound = node.functionRef && node.functionRef.trim();
       if (!bound) {
-        push("error", `${def.displayName} 未绑定函数`, {
+        softPush(`${def.displayName} 未绑定函数`, {
           ...at("functionRef"),
           source: "binding",
         });
@@ -152,9 +194,9 @@ export class ValidationEngine {
           (f) => f.name === node.functionRef && (!cls || (f.ownerClass ?? f.bindingTarget.split(".")[0]) === cls),
         );
         if (!cls) {
-          push("error", `${def.displayName} 未选择类(className)`, { ...at("targetSelector.modelClass"), source: "binding" });
+          softPush(`${def.displayName} 未选择类(className)`, { ...at("targetSelector.modelClass"), source: "binding" });
         } else if (!matched) {
-          push("error", `方法 ${node.functionRef} 不存在于类 ${cls}(模型校验失败)`, { ...at("functionRef"), source: "binding" });
+          softPush(`方法 ${node.functionRef} 不存在于类 ${cls}(模型校验失败)`, { ...at("functionRef"), source: "binding" });
         } else {
           // 必填参数齐全性:输入绑定应覆盖必填输入参数
           const requiredInputs = matched.params.filter((p) => p.direction !== "output" && p.required);
@@ -168,20 +210,20 @@ export class ValidationEngine {
               ((ib.source === "blackboard" && ib.variableId) ||
                 (ib.source !== "blackboard" && (emptyOk || (ib.value ?? "").trim() !== "")));
             if (!hasVal) {
-              // 必填参数未完整输入 = 错误,阻断导出
-              push("error", `必填参数 ${rp.name} 未赋值(参数未完整输入)`, { ...at(`inputBindings.${rp.name}`), source: "binding" });
+              // 必填参数未完整输入 —— soft:editing 提示,export 阻断
+              softPush(`必填参数 ${rp.name} 未赋值(参数未完整输入)`, { ...at(`inputBindings.${rp.name}`), source: "binding" });
             }
           }
-          // 参数类型校验:每个输入/输出绑定的 displayType/malType 与方法参数定义一致(不一致为 error)。
+          // 参数类型校验:每个输入/输出绑定的 displayType/malType 与方法参数定义一致(不一致为 soft)。
           for (const bp of matched.params) {
             const ib = node.inputBindings.find((b) => b.name === bp.name);
             if (ib && ib.malType && bp.malType && ib.malType !== bp.malType) {
-              push("error", `输入参数 ${bp.name} 类型不匹配:节点绑 ${ib.malType},方法定义 ${bp.malType}`, { ...at(`inputBindings.${bp.name}`), source: "binding" });
+              softPush(`输入参数 ${bp.name} 类型不匹配:节点绑 ${ib.malType},方法定义 ${bp.malType}`, { ...at(`inputBindings.${bp.name}`), source: "binding" });
             }
             if (ib && ib.displayType && bp.displayType && ib.displayType !== bp.displayType) {
               push("warning", `输入参数 ${bp.name} displayType 不匹配:节点 ${ib.displayType},方法 ${bp.displayType}`, { ...at(`inputBindings.${bp.name}`), source: "binding" });
             }
-            // 常量输入即时 MAL 值转换校验(输入即报错,不必等到导出/生成)。
+            // 常量输入即时 MAL 值转换校验:**硬规则** —— 用户已经填了值但填的是垃圾,任何阶段都要红字。
             if (ib && ib.source !== "blackboard") {
               const mal = ib.malType ?? bp.malType;
               const val = ib.value ?? "";
@@ -199,13 +241,13 @@ export class ValidationEngine {
             if (!mp) {
               push("warning", `输出绑定 ${ob.name} 不在方法参数列表中`, { ...at(`outputBindings.${ob.name}`), source: "binding" });
             } else if (mp.direction !== "output") {
-              push("error", `输出绑定 ${ob.name} 的方法参数方向为 "${mp.direction}"(应为 output)`, { ...at(`outputBindings.${ob.name}`), source: "binding" });
+              softPush(`输出绑定 ${ob.name} 的方法参数方向为 "${mp.direction}"(应为 output)`, { ...at(`outputBindings.${ob.name}`), source: "binding" });
             }
             // 选了回写变量(variableId 非空)才校验类型;留空表示「不回写」,输出仍走原 MAL 数据,合法。
             if (mp && ob.variableId) {
               const tv = varIndex.get(ob.variableId);
               if (tv && !isWritebackCompatible(mp.malType, tv.malType, mp.displayType, tv.displayType)) {
-                push("error", `输出 ${ob.name} 回写类型不匹配:方法输出 ${mp.malType ?? mp.displayType},变量 ${tv.name} 为 ${tv.malType ?? tv.displayType}(类型对应才能回写)`, { ...at(`outputBindings.${ob.name}`), source: "binding" });
+                softPush(`输出 ${ob.name} 回写类型不匹配:方法输出 ${mp.malType ?? mp.displayType},变量 ${tv.name} 为 ${tv.malType ?? tv.displayType}(类型对应才能回写)`, { ...at(`outputBindings.${ob.name}`), source: "binding" });
               }
             }
           }

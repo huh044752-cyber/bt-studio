@@ -6,7 +6,6 @@ import ActionButton from "@/components/common/ActionButton.vue";
 import ModalDialog from "@/components/common/ModalDialog.vue";
 import PageBar from "@/components/common/PageBar.vue";
 import ExportSelectModal from "@/components/workspace/ExportSelectModal.vue";
-import { seedWorkspace } from "@/stores/seed";
 import {
   readTextFile,
   writeArtifact,
@@ -368,16 +367,6 @@ async function openWorkspace() {
   c.success("import", `已打开工作空间:${ws.workspaceName}${f.path ? " · " + f.path : ""}`);
 }
 
-/** 加载内置示例(空战决策树+状态机)。供首次进入/空状态使用。 */
-function loadDemo() {
-  if (ws.trees.length > 0) {
-    c.warning("workspace", "当前工作空间已有内容;先「新建」清空后再加载示例。");
-    return;
-  }
-  seedWorkspace();
-  c.success("workspace", "已加载示例:空战决策(行为树 + 状态机)");
-}
-
 /** 从最近列表加载第 idx 项。 */
 function loadFromRecent(idx: number) {
   if (ws.trees.length > 0) {
@@ -504,19 +493,18 @@ ctest --test-dir build -C Release --output-on-failure</pre>
 
     <!-- 概览:四张卡片(配置 / 内容统计 / 行为树+状态机 / 全局黑板)-->
     <div v-show="tab === 'overview'" class="overview scroll" :class="{ 'is-empty': isEmpty }">
-      <!-- 空状态:无任何树/类/函数时,展示「新建 / 打开 / 加载示例 + 最近列表」 -->
+      <!-- 空状态:无任何树/类/函数时,展示「新建 / 打开 + 最近列表」 -->
       <div v-if="isEmpty" class="hero">
         <div class="hero-card">
           <div class="hero-icon">⌬</div>
           <div class="hero-title">开始一个工作空间</div>
           <div class="hero-sub">
-            BT Studio 不再自动加载演示数据。请「新建」一个空工作空间、从本地「打开」一个 *.workspace.xml,
-            或「加载示例」体验空战决策树+状态机。
+            BT Studio 不再自动加载演示数据。请「新建」一个空工作空间,
+            或从本地「打开」一个 *.workspace.xml。
           </div>
           <div class="hero-actions">
             <button class="btn primary lg" @click="openNew">+ 新建工作空间</button>
             <button class="btn lg" @click="openWorkspace">⇪ 打开 XML…</button>
-            <button class="btn lg ghost" @click="loadDemo">⚑ 加载示例</button>
           </div>
         </div>
 

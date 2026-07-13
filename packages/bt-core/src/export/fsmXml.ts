@@ -174,7 +174,17 @@ export function serializeFsmXml(tree: DesignTree, scopeByBoardId: Map<string, st
   }
 
   const lines: string[] = ["<?xml version='1.0' encoding='utf-8'?>"];
-  lines.push(`<Root${attr("id", 0)} projectType="状态机"${attr("name", tree.treeName)}>`);
+  // 与 BT 同理:Root 上带 cognition 让引擎 StateMachineTask 侧的 Agent EmployCog 找到类。
+  // FSM 里 cognition = 出现最多的 State/Transition.className(单类 FSM 场景恒定为该类)。
+  const counts = new Map<string, number>();
+  for (const n of Object.values(tree.nodes)) {
+    const cls = n.targetSelector?.modelClass?.trim();
+    if (cls) counts.set(cls, (counts.get(cls) ?? 0) + 1);
+  }
+  let cognition = "";
+  let bestN = 0;
+  for (const [k, n] of counts) if (n > bestN) { bestN = n; cognition = k; }
+  lines.push(`<Root${attr("id", 0)} projectType="状态机"${attr("name", tree.treeName)}${attr("cognition", cognition)}>`);
   lines.push(...emitState(entryId, "  "));
   lines.push("</Root>");
   return lines.join("\n") + "\n";

@@ -212,6 +212,7 @@ describe("Export Pipeline(文档 §16.2)", () => {
       mode: "standalone",
       catalogs: { functionCatalog: { functions: [{ functionId: "fn_t", name: "DoThing", category: "action", bindingTarget: "X.DoThing", ownerClass: "X", returnType: "CyberDFMPFRC", params: [{ paramId: "p1", name: "RESULT", direction: "output", displayType: "int", malType: "CYBER_MARGTYPE_INTEGER", valueFormat: "literal", required: false }] }] }, globalBlackboards: [], enums: [], structs: [], types: [], classes: [], members: [] },
       blackboards: [{ blackboardId: "bb1", name: "test", scope: "global", runtimeScope: "Global", linked: true, variables: [{ variableId: "v1", name: "s", scope: "global", displayType: "string", malType: "CYBER_MARGTYPE_STRING", valueFormat: "literal" }] }],
+      phase: "export",
     });
     expect(issues2.some((i) => i.level === "error" && /回写类型不匹配/.test(i.message))).toBe(true);
     void issues;

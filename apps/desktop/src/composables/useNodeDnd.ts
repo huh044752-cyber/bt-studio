@@ -9,7 +9,14 @@
  * "拖动图"承载 ghost 节点,视觉与目标画布 1:1 对齐。落点(drop)时
  * 我们把创建动作**转发给命令层** ws.run({kind:"AddNode",...}),
  * 保持"单一真相源":真节点由 useGraphEditor.sync() 依据 ws state 增量渲染,
- * X6 Dnd 加入的临时 dummy 节点会被 sync() 的清理 diff 自动移除。
+ * X6 Dnd 加入的临时 dummy 节点会被 validateNode 返回 false 拦下不落画布。
+ *
+ * 坐标处理关键:X6 Dnd 内部 drop 流程(x6/src/plugin/dnd/index.ts:463-483)
+ *   1. getDropNode(dragging) —— 此时 dragging 位置仍是 draggingGraph 幽灵坐标
+ *   2. droppingNode.position(clientToLocal(mouse), snapToGrid) —— 目标画布坐标
+ *   3. validateNode(droppingNode, ...) —— 这里读 getPosition() 才是真正的落点
+ * 所以创建节点必须在 validateNode 里发出,不能在 getDropNode 里发(那里的
+ * dragging.getPosition() 是拖动图坐标系,与目标画布不同,节点会落在错误的位置)。
  */
 import { shallowRef } from "vue";
 import { Dnd, type Graph } from "@antv/x6";
@@ -75,29 +82,27 @@ export function useNodeDnd(
     const d = new Dnd({
       target: g,
       scaled: false,
-      // 放到画布时的最终节点:落孤儿节点,由用户在画布上手动拖端口连线。
-      // 不再自动挂父/自动选中 —— 用户明确要求"我自己拖线连"。
-      getDropNode: (dragging) => {
-        const nodeType = (dragging.getData() as { dndNodeType?: string })?.dndNodeType;
-        const pos = dragging.getPosition();
-        if (!nodeType) return dragging.clone();
-        const t = ws.currentTree;
-        if (!t) {
+      // getDropNode:此时坐标还没结算,只透传克隆 —— **不要**在这里发 AddNode。
+      getDropNode: (dragging) => dragging.clone(),
+      // ghost:直接透传源节点,视觉贴近画布节点。
+      getDragNode: (source) => source.clone(),
+      // validateNode:X6 已经把 droppingNode 摆到目标画布坐标(clientToLocal + snapToGrid),
+      // 这里 getPosition() 拿到的就是**鼠标松开时对应的画布坐标**,发 AddNode 就落对位置。
+      // 返回 false → X6 不把 dummy 节点加入目标画布(真节点由 sync 从 ws state 渲染)。
+      validateNode: (droppingNode) => {
+        const nodeType = (droppingNode.getData() as { dndNodeType?: string })?.dndNodeType;
+        if (!nodeType) return false;
+        if (!ws.currentTree) {
           con.warning("canvas", "当前没有树,先在左侧新建一棵");
-          return dragging.clone();
+          return false;
         }
-        // parentNodeId 传 undefined → 命令层不 connect,只创建独立节点。
+        const pos = droppingNode.getPosition();
         const res = ws.run({ kind: "AddNode", nodeType, x: pos.x, y: pos.y });
         if (!res?.ok) {
           con.warning("canvas", `创建 ${nodeType} 失败:${res?.reason ?? "未知"}`);
-          return dragging.clone();
         }
-        // X6 会把 dummy 加到目标画布,下一帧 useGraphEditor.sync() 依 tree.nodes
-        // diff 清掉它(dummy 的 data 里没有 nodeId)。
-        return dragging.clone();
+        return false;
       },
-      // ghost 由 makeGhostNode 提供,这里直接透传源节点。
-      getDragNode: (source) => source.clone(),
     });
     dndRef.value = d;
     return d;

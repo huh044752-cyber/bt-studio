@@ -6,6 +6,7 @@ import ActionButton from "@/components/common/ActionButton.vue";
 import ModalDialog from "@/components/common/ModalDialog.vue";
 import PageBar from "@/components/common/PageBar.vue";
 import Splitter from "@/components/common/Splitter.vue";
+import Tag from "@/components/common/Tag.vue";
 import { saveTextFile, readTextFile } from "@/services/tauri";
 import { functionOwnerClass, newFunctionId, newEnumId, prefixedId } from "@btstudio/bt-core";
 
@@ -41,15 +42,9 @@ async function scrollFocusById(id: string) {
   el.scrollIntoView({ behavior: "smooth", block: "center" });
   const input = el.querySelector("input.input") as HTMLInputElement | null;
   if (input) { input.focus(); input.select(); }
-  // 短暂高亮:视觉指引新行所在位置
   el.classList.add("just-added");
   window.setTimeout(() => el.classList.remove("just-added"), 1500);
 }
-/**
- * 生成一个在给定"已用名集合"里唯一的新名字:
- * 起始名不冲突就用它;冲突就追加 2/3/… 直到不重。
- * 例如 usedNames=["NewMethod","NewMethod2"], base="NewMethod" → "NewMethod3"。
- */
 function uniqueName(usedNames: Set<string>, base: string): string {
   if (!usedNames.has(base)) return base;
   for (let i = 2; i < 10_000; i++) {
@@ -61,9 +56,6 @@ function uniqueName(usedNames: Set<string>, base: string): string {
 
 function addMethod(className: string, classId: string) {
   const functionId = newFunctionId();
-  // 同类下同名会撞 bindingTarget,PropertiesPanel 里 `选择方法` 下拉 :value=m.name
-  // 也会因为重复 name 无法区分,用户看到多个 `新方法 (action)` 都是同一个选项。
-  // 生成唯一名 NewMethod / NewMethod2 / …,displayName 跟着后缀走。
   const used = new Set(
     ws.functionCatalog.functions
       .filter((f) => functionOwnerClass(f) === className)
@@ -83,13 +75,13 @@ function addMethod(className: string, classId: string) {
     params: [],
   });
   ws.bump();
-  // 若这个类当前处于折叠,先展开,再滚到新方法行
   if (collapsed.value.has(classId)) toggleCollapse(classId);
+  // 新方法默认展开以便立刻编辑
+  methodCollapsed.value.delete(functionId);
   scrollFocusById(`method-${functionId}`);
 }
 function addMember(className: string, classId: string) {
   const memberId = prefixedId("member");
-  // 与 addMethod 同理:成员名同类下必须唯一,否则 C++ 生成的类成员会撞名。
   const used = new Set(ws.members.filter((m) => m.ownerClassId === classId).map((m) => m.memberName));
   const memberName = uniqueName(used, "newMember");
   ws.members.push({
@@ -110,7 +102,6 @@ function addEnumItem(enumId: string) {
   const e = ws.enums.find((x) => x.enumId === enumId);
   if (e) { e.items.push({ runtimeValue: `Item${e.items.length + 1}`, displayName: `Item${e.items.length + 1}` }); ws.bump(); }
 }
-/** 删除类(连同其成员/方法一并清理)。 */
 function removeClass(classId: string, className: string) {
   ws.classes = ws.classes.filter((x) => x.classId !== classId);
   ws.members = ws.members.filter((m) => m.ownerClassId !== classId);
@@ -147,13 +138,8 @@ const SAMPLE = `<?xml version='1.0' encoding='utf-8'?>
   <agents>
     <agent classfullname="CyberAirFighter" base="behaviac::Agent" DisplayName="战机">
       <Member Name="speed" Class="CyberAirFighter" Type="float" Static="false" Public="true" />
-      <Member Name="g_round" Class="CyberAirFighter" Type="int" Static="true" Public="true" />
       <Method Name="Engage" DisplayName="进入交战" Class="CyberAirFighter" ReturnType="behaviac::EBTStatus">
         <Param Name="TARGET" Type="string" DisplayName="目标" />
-        <Param Name="RESULT" Type="int" IsRef="true" DisplayName="结果" />
-      </Method>
-      <Method Name="InRange" DisplayName="在射程内" Class="CyberAirFighter" ReturnType="bool">
-        <Param Name="RANGE" Type="float" DisplayName="距离" />
       </Method>
     </agent>
   </agents>
@@ -161,15 +147,14 @@ const SAMPLE = `<?xml version='1.0' encoding='utf-8'?>
 </meta>`;
 
 const xmlText = ref(SAMPLE);
-const xmlVisible = ref(false); // meta.xml 面板默认隐藏,聚焦类型编辑
+const xmlVisible = ref(false);
 
-/** 从当前类型空间生成 meta.xml(同步:类型空间 → XML)。 */
 function syncXmlFromTypeSpace() {
   if (ws.classes.length > 0 || ws.enums.length > 0) xmlText.value = ws.exportMetaXml();
 }
 function toggleXml() {
   xmlVisible.value = !xmlVisible.value;
-  if (xmlVisible.value) syncXmlFromTypeSpace(); // 打开时即与类型空间同步
+  if (xmlVisible.value) syncXmlFromTypeSpace();
 }
 
 async function importXml() {
@@ -177,12 +162,12 @@ async function importXml() {
   if (f) {
     xmlText.value = f.content;
     xmlVisible.value = true;
-    ws.applyMetaXml(f.content); // 导入即同步到类型空间
+    ws.applyMetaXml(f.content);
     c.info("import", `已导入并同步 ${f.name}`);
   }
 }
 function applyToCatalog() {
-  ws.applyMetaXml(xmlText.value); // XML → 类型空间
+  ws.applyMetaXml(xmlText.value);
 }
 async function exportMeta() {
   const r = await saveTextFile("catalog.meta.xml", ws.exportMetaXml(), {
@@ -191,11 +176,8 @@ async function exportMeta() {
   if (r) c.success("export", `导出 meta.xml → ${r.path}`);
 }
 
-/** 可选 Cyber 运行类型(成员/参数)。 */
 const CYBER_TYPES = ["CyberIntegerType", "CyberRealType", "CyberBOOL", "CyberStringType", "CyberNameType", "CyberVectorType", "CyberPositionType", "CyberCoordinateType", "CyberOrientationType", "CyberJulianType"];
-/** 类方法返回值固定为 CyberDFMPFRC(FOSim 引擎模型决策/条件函数统一返回值)。 */
 const FIXED_RETURN = "CyberDFMPFRC";
-/** Cyber 运行类型 → displayType(给参数补 displayType,便于黑板按类型过滤)。 */
 function cyberToDisplay(fz: string): string {
   const s = fz.toLowerCase();
   if (s.includes("bool")) return "bool";
@@ -206,11 +188,9 @@ function cyberToDisplay(fz: string): string {
   if (s.includes("coordinate")) return "coordinate";
   return "string";
 }
-/** 类别变化只影响节点过滤,返回值始终 CyberDFMPFRC。 */
 function onMethodCategory(m: { returnType: string }) {
   m.returnType = FIXED_RETURN;
 }
-/** 给方法添加参数。 */
 function addParam(m: { params: unknown[] }) {
   (m.params as Array<Record<string, unknown>>).push({
     paramId: prefixedId("param"),
@@ -234,6 +214,39 @@ function onParamType(p: Record<string, unknown>, fz: string) {
   ws.bump();
 }
 
+// —— 搜索 —— //
+const search = ref("");
+const searchLc = computed(() => search.value.trim().toLowerCase());
+
+function classHit(cls: { className: string; displayName?: string; description?: string }): boolean {
+  const q = searchLc.value;
+  if (!q) return true;
+  return (
+    cls.className.toLowerCase().includes(q) ||
+    (cls.displayName ?? "").toLowerCase().includes(q) ||
+    (cls.description ?? "").toLowerCase().includes(q)
+  );
+}
+function methodHit(m: { name: string; displayName?: string; description?: string }): boolean {
+  const q = searchLc.value;
+  if (!q) return true;
+  return (
+    m.name.toLowerCase().includes(q) ||
+    (m.displayName ?? "").toLowerCase().includes(q) ||
+    (m.description ?? "").toLowerCase().includes(q)
+  );
+}
+function memberHit(m: { memberName: string }): boolean {
+  const q = searchLc.value;
+  if (!q) return true;
+  return m.memberName.toLowerCase().includes(q);
+}
+function enumHit(e: { name: string; items: { runtimeValue: string; displayName: string }[] }): boolean {
+  const q = searchLc.value;
+  if (!q) return true;
+  return e.name.toLowerCase().includes(q) || e.items.some((it) => it.runtimeValue.toLowerCase().includes(q) || it.displayName.toLowerCase().includes(q));
+}
+
 const agents = computed(() => {
   void ws.rev;
   return ws.classes.map((cls) => ({
@@ -243,7 +256,32 @@ const agents = computed(() => {
   }));
 });
 
-// 折叠类卡片
+/**
+ * 搜索时:
+ *   - 类头命中 → 保留全类
+ *   - 类头未命中 → 只在类内保留命中的方法/成员;若都没命中 → 隐藏整个类
+ */
+const filteredAgents = computed(() => {
+  const q = searchLc.value;
+  if (!q) return agents.value;
+  return agents.value
+    .map((a) => {
+      if (classHit(a.cls)) return a;
+      const methods = a.methods.filter(methodHit);
+      const members = a.members.filter(memberHit);
+      if (methods.length === 0 && members.length === 0) return null;
+      return { cls: a.cls, methods, members };
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null);
+});
+const filteredEnums = computed(() => {
+  const q = searchLc.value;
+  void ws.rev;
+  if (!q) return ws.enums;
+  return ws.enums.filter(enumHit);
+});
+
+// 类/枚举折叠
 const collapsed = ref<Set<string>>(new Set());
 function toggleCollapse(id: string) {
   if (collapsed.value.has(id)) collapsed.value.delete(id);
@@ -252,6 +290,18 @@ function toggleCollapse(id: string) {
 }
 function collapseAll(v: boolean) {
   collapsed.value = v ? new Set([...agents.value.map((a) => a.cls.classId), ...ws.enums.map((e) => e.enumId)]) : new Set();
+}
+
+// 方法级折叠(默认收起,只显示头行;点开才见参数)
+const methodCollapsed = ref<Set<string>>(new Set());
+function toggleMethod(functionId: string) {
+  if (methodCollapsed.value.has(functionId)) methodCollapsed.value.delete(functionId);
+  else methodCollapsed.value.add(functionId);
+  methodCollapsed.value = new Set(methodCollapsed.value);
+}
+function expandAllMethods() { methodCollapsed.value = new Set(); }
+function collapseAllMethods() {
+  methodCollapsed.value = new Set(ws.functionCatalog.functions.map((f) => f.functionId));
 }
 </script>
 
@@ -270,30 +320,28 @@ function collapseAll(v: boolean) {
       </template>
       <template #help>
         <section class="help-sec">
-          <h3>这个页面是做什么的?</h3>
-          <p>编辑<strong>类型声明</strong>:类 (Agent) / 方法 (函数) / 成员 (变量声明) / 枚举。等价于 C++ 里的类头文件,是行为树/状态机叶子节点绑定"类 → 方法"的来源。</p>
+          <h3>头行怎么读</h3>
+          <p><code>className</code>(英文,标识)= 类身份;<strong>显示名</strong>(中文,可改)= 面板/节点上给人看;<strong>描述</strong>(副行,可改)= 悬停节点时展示的说明。</p>
         </section>
         <section class="help-sec">
           <h3>三条数据来源</h3>
           <ol>
-            <li>右栏「＋新建类 / ＋新建枚举」,并在行内直接编辑</li>
-            <li>从<strong>「工作空间 → 模型类型抽取」</strong>勾选真实模型 <code>.cmp</code> 里已有的类,一键抽取过来</li>
-            <li>「导入 meta.xml」加载 behaviac 风格的类型清单</li>
+            <li>顶部「＋新建类 / ＋新建枚举」,行内直接编辑</li>
+            <li>「工作空间 → 模型类型抽取」勾选真实 <code>.cmp</code> 类,一键抽取</li>
+            <li>「导入 meta.xml」加载 behaviac 风格类型清单</li>
           </ol>
         </section>
         <section class="help-sec">
-          <h3>与其他页面的分工</h3>
+          <h3>折叠 / 搜索</h3>
           <ul>
-            <li><strong>类型空间</strong>(本页)= 类型声明</li>
-            <li><strong>黑板中心</strong> = 运行期变量实例</li>
-            <li><strong>工作空间</strong> = C++ 代码生成 + 工作空间保存</li>
+            <li>类级折叠:头行 <code>▾/▸</code>;方法级折叠:方法行 <code>▾/▸</code></li>
+            <li>顶部全部折叠/展开控制两级;方法级另有独立按钮</li>
+            <li>搜索:匹配 className / 显示名 / 描述 / 方法名 / 成员名 / 枚举项</li>
           </ul>
         </section>
-        <div class="help-note">
-          方法/成员/枚举的新增会自动<strong>按类去重命名</strong>(NewMethod / NewMethod2 / …),避免同类下撞名。
-        </div>
       </template>
     </PageBar>
+
     <div class="grid" :class="{ single: !xmlVisible }">
       <div v-if="xmlVisible" class="panel scroll">
         <div class="ptitle row">
@@ -304,103 +352,178 @@ function collapseAll(v: boolean) {
         <textarea v-model="xmlText" class="xml mono" spellcheck="false" />
       </div>
       <Splitter v-if="xmlVisible" />
-      <div class="panel scroll types">
-        <div class="create-bar row">
+
+      <div class="panel types">
+        <!-- 工具条:新建 + 搜索 + 折叠控制 -->
+        <div class="toolbar">
           <button class="btn tiny primary" @click="openCreate('class')">＋ 新建类 (Agent)</button>
           <button class="btn tiny" @click="openCreate('enum')">＋ 新建枚举</button>
+          <div class="search-wrap">
+            <span class="s-ico">⌕</span>
+            <input class="input tiny search" v-model="search"
+              placeholder="搜索:className / 中文名 / 描述 / 方法名 / 成员 / 枚举项…" />
+            <button v-if="search" class="btn tiny s-x" @click="search = ''" title="清除">✕</button>
+          </div>
           <span class="spacer" />
-          <button class="btn tiny" title="全部折叠" @click="collapseAll(true)">全部折叠</button>
-          <button class="btn tiny" title="全部展开" @click="collapseAll(false)">全部展开</button>
+          <div class="btn-grp" title="类级折叠">
+            <button class="btn tiny" @click="collapseAll(false)">展开类</button>
+            <button class="btn tiny" @click="collapseAll(true)">折叠类</button>
+          </div>
+          <div class="btn-grp" title="方法级折叠">
+            <button class="btn tiny" @click="expandAllMethods">展开方法</button>
+            <button class="btn tiny" @click="collapseAllMethods">折叠方法</button>
+          </div>
         </div>
-        <div v-if="agents.length === 0 && ws.enums.length === 0" class="muted-2 empty">新建类/枚举,或导入 meta.xml。</div>
-        <div class="typewrap">
-        <!-- 类(Agent)卡片 -->
-        <section v-for="a in agents" :key="a.cls.classId" class="card cls" :class="{ collapsed: collapsed.has(a.cls.classId) }">
-          <header class="card-head">
-            <span class="caret" @click="toggleCollapse(a.cls.classId)">{{ collapsed.has(a.cls.classId) ? "▸" : "▾" }}</span>
-            <span class="ico">▧</span>
-            <input class="input tiny inl name-in" v-model="a.cls.displayName" placeholder="显示名" />
-            <code class="cls-name">{{ a.cls.className }}</code>
-            <input class="input tiny inl desc-in" v-model="a.cls.description" placeholder="备注:类用途,鼠标悬停节点时显示" />
-            <span class="src-tag" :class="a.cls.source === 'user' ? 'user' : 'model'">{{ a.cls.source === "user" ? "用户" : "模型" }}</span>
-            <!-- baseClass 曾展示为"模型 : CyberCognitionImpl",但生成代码统一继承 CyberDecisionAgentBase,该标签会误导用户。已移除。 -->
-            <span class="spacer" />
-            <span class="counts"><b>{{ a.methods.length }}</b> 方法 · <b>{{ a.members.length }}</b> 成员</span>
-            <button class="btn tiny" @click="addMethod(a.cls.className, a.cls.classId)">＋方法</button>
-            <button class="btn tiny" @click="addMember(a.cls.className, a.cls.classId)">＋成员</button>
-            <button class="btn tiny danger ic" title="删除类(连同方法/成员)" @click="removeClass(a.cls.classId, a.cls.className)">🗑</button>
-          </header>
-          <div v-if="!collapsed.has(a.cls.classId)" class="card-body">
-            <!-- 方法 -->
-            <div class="sub-head"><span class="dot m" />方法(决策/条件函数)<span class="muted-2 sh-hint">返回值统一 CyberDFMPFRC</span></div>
-            <div v-if="a.methods.length === 0" class="muted-2 sub-empty">暂无方法,点「＋方法」。</div>
-            <div v-for="m in a.methods" :key="m.functionId" class="method" :id="`method-${m.functionId}`">
-              <div class="m-top">
-                <span class="cat-badge" :class="m.category">{{ CAT_LABEL[m.category] ?? m.category }}</span>
-                <input class="input tiny nm" v-model="m.name" placeholder="方法名 (英文)" />
-                <select class="select tiny" v-model="m.category" @change="onMethodCategory(m)" title="类别">
-                  <option value="action">动作 action</option>
-                  <option value="condition">条件 condition</option>
-                  <option value="condition_transform">条件变换</option>
-                </select>
-                <span class="ret-badge" title="类方法返回值固定为 CyberDFMPFRC">CyberDFMPFRC</span>
-                <span class="spacer" />
-                <button class="btn tiny" @click="addParam(m)">＋参数</button>
-                <button class="btn tiny danger ic" title="删除方法" @click="removeMethod(m.functionId)">🗑</button>
+
+        <div class="typewrap scroll">
+          <div v-if="agents.length === 0 && ws.enums.length === 0" class="empty-big">
+            <div class="empty-ico">◇</div>
+            <div class="empty-t">类型空间为空</div>
+            <div class="empty-hint">点上方「新建类 / 新建枚举」,或从工作空间抽取模型 .cmp</div>
+          </div>
+          <div v-else-if="filteredAgents.length === 0 && filteredEnums.length === 0" class="empty-big">
+            <div class="empty-ico">⌕</div>
+            <div class="empty-t">无匹配「{{ search }}」</div>
+            <div class="empty-hint">清空搜索或换关键字</div>
+          </div>
+
+          <!-- 类(Agent)卡片 -->
+          <section v-for="a in filteredAgents" :key="a.cls.classId" class="card cls" :class="{ collapsed: collapsed.has(a.cls.classId) }">
+            <header class="card-head">
+              <button class="caret-btn" @click="toggleCollapse(a.cls.classId)">
+                {{ collapsed.has(a.cls.classId) ? "▸" : "▾" }}
+              </button>
+              <span class="ico">▧</span>
+              <!-- 主 ID:className(英文,唯一,不可编辑;编辑要开 meta.xml 或删旧建新) -->
+              <code class="cls-name-primary">{{ a.cls.className }}</code>
+              <!-- 显示名:中文,可编辑,PropertiesPanel 里的下拉标签用它 -->
+              <div class="name-input-wrap">
+                <span class="input-lbl">显示名</span>
+                <input class="input tiny name-in" v-model="a.cls.displayName" placeholder="显示名(中文)" />
               </div>
-              <input class="input tiny desc" v-model="m.description" placeholder="方法说明(描述,鼠标悬停节点时显示)" />
-              <div v-if="m.params.length" class="param-head">
-                <span style="width:108px">参数名</span><span style="width:88px">中文名</span><span style="width:120px">Cyber 类型</span><span style="width:76px">方向</span>
+              <Tag :variant="a.cls.source === 'user' ? 'ok' : 'accent'" size="xs">
+                {{ a.cls.source === "user" ? "用户" : "模型" }}
+              </Tag>
+              <span class="spacer" />
+              <span class="counts nowrap">
+                <b>{{ a.methods.length }}</b> 方法 · <b>{{ a.members.length }}</b> 成员
+              </span>
+              <button class="btn tiny" @click="addMethod(a.cls.className, a.cls.classId)">＋方法</button>
+              <button class="btn tiny" @click="addMember(a.cls.className, a.cls.classId)">＋成员</button>
+              <button class="btn tiny danger ic" title="删除类(连同方法/成员)" @click="removeClass(a.cls.classId, a.cls.className)">🗑</button>
+            </header>
+
+            <!-- 副行:类描述(全宽,斜体,dimmed);折叠时不占空间 -->
+            <div v-if="!collapsed.has(a.cls.classId)" class="card-subhead">
+              <span class="input-lbl">描述</span>
+              <input class="input tiny desc-in" v-model="a.cls.description"
+                placeholder="类用途,鼠标悬停节点时显示(可选)" />
+            </div>
+
+            <div v-if="!collapsed.has(a.cls.classId)" class="card-body">
+              <!-- 方法 -->
+              <div class="sub-head">
+                <span class="dot m" />方法(决策/条件函数)
+                <span class="muted-2 sh-hint">返回值统一 CyberDFMPFRC</span>
               </div>
-              <div v-for="(p, pi) in m.params" :key="p.paramId" class="param-row">
-                <input class="input tiny" style="width:108px" v-model="p.name" placeholder="参数名" />
-                <input class="input tiny" style="width:88px" v-model="p.displayName" placeholder="中文名" />
-                <select class="select tiny" style="width:120px" :value="p.originalType ?? 'CyberIntegerType'" @change="onParamType(p, ($event.target as HTMLSelectElement).value)">
+              <div v-if="a.methods.length === 0" class="muted-2 sub-empty">暂无方法,点「＋方法」。</div>
+              <div v-for="m in a.methods" :key="m.functionId" class="method"
+                :class="{ 'm-collapsed': methodCollapsed.has(m.functionId) }" :id="`method-${m.functionId}`">
+                <div class="m-top">
+                  <button class="caret-btn small" @click="toggleMethod(m.functionId)"
+                    :title="methodCollapsed.has(m.functionId) ? '展开参数' : '收起参数'">
+                    {{ methodCollapsed.has(m.functionId) ? "▸" : "▾" }}
+                  </button>
+                  <Tag :variant="m.category === 'action' ? 'accent' : (m.category === 'condition' ? 'warn' : 'info')" size="xs">
+                    {{ CAT_LABEL[m.category] ?? m.category }}
+                  </Tag>
+                  <code class="m-name-primary">{{ m.name }}</code>
+                  <input class="input tiny m-nm" v-model="m.name" placeholder="方法名 (英文)" />
+                  <input class="input tiny m-disp" v-model="m.displayName" placeholder="中文名" />
+                  <select class="select tiny m-cat" v-model="m.category" @change="onMethodCategory(m)" title="类别">
+                    <option value="action">动作</option>
+                    <option value="condition">条件</option>
+                    <option value="condition_transform">条件变换</option>
+                  </select>
+                  <Tag variant="ok" size="xs" mono>CyberDFMPFRC</Tag>
+                  <span class="param-cnt nowrap muted-3">{{ m.params.length }} 参</span>
+                  <span class="spacer" />
+                  <button class="btn tiny" @click="addParam(m)">＋参</button>
+                  <button class="btn tiny danger ic" title="删除方法" @click="removeMethod(m.functionId)">🗑</button>
+                </div>
+
+                <div v-if="!methodCollapsed.has(m.functionId)" class="m-body">
+                  <input class="input tiny desc" v-model="m.description"
+                    placeholder="方法说明(悬停节点时显示,可选)" />
+                  <div v-if="m.params.length" class="param-head">
+                    <span style="width:120px">参数名</span>
+                    <span style="width:96px">中文名</span>
+                    <span style="width:140px">Cyber 类型</span>
+                    <span style="width:76px">方向</span>
+                  </div>
+                  <div v-for="(p, pi) in m.params" :key="p.paramId" class="param-row">
+                    <input class="input tiny" style="width:120px" v-model="p.name" placeholder="参数名" />
+                    <input class="input tiny" style="width:96px" v-model="p.displayName" placeholder="中文名" />
+                    <select class="select tiny" style="width:140px" :value="p.originalType ?? 'CyberIntegerType'"
+                      @change="onParamType(p, ($event.target as HTMLSelectElement).value)">
+                      <option v-for="t in CYBER_TYPES" :key="t" :value="t">{{ t }}</option>
+                    </select>
+                    <select class="select tiny" style="width:76px" v-model="p.direction" title="方向"
+                      :class="p.direction === 'output' ? 'dir-out' : 'dir-in'">
+                      <option value="input">输入</option>
+                      <option value="output">输出</option>
+                    </select>
+                    <span class="spacer" />
+                    <button class="btn tiny danger ic" @click="removeParam(m, pi)">✕</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 成员 -->
+              <div class="sub-head"><span class="dot v" />成员(变量声明 · Cyber 类型)</div>
+              <div v-if="a.members.length === 0" class="muted-2 sub-empty">暂无成员,点「＋成员」。</div>
+              <div v-for="m in a.members" :key="m.memberId" class="member-row" :id="`member-${m.memberId}`">
+                <input class="input tiny mem-nm" v-model="m.memberName" placeholder="成员名" />
+                <select class="select tiny" style="width:150px" v-model="m.valueType">
                   <option v-for="t in CYBER_TYPES" :key="t" :value="t">{{ t }}</option>
                 </select>
-                <select class="select tiny" style="width:76px" v-model="p.direction" title="方向" :class="p.direction === 'output' ? 'dir-out' : 'dir-in'">
-                  <option value="input">输入</option>
-                  <option value="output">输出</option>
-                </select>
-                <button class="btn tiny danger ic" @click="removeParam(m, pi)">✕</button>
+                <label class="chk"><input type="checkbox" v-model="m.static" /> 全局 static</label>
+                <span class="spacer" />
+                <button class="btn tiny danger ic" title="删除成员" @click="removeMember(m.memberId)">✕</button>
               </div>
             </div>
-            <!-- 成员 -->
-            <div class="sub-head"><span class="dot v" />成员(变量声明 · Cyber 类型)</div>
-            <div v-if="a.members.length === 0" class="muted-2 sub-empty">暂无成员,点「＋成员」。</div>
-            <div v-for="m in a.members" :key="m.memberId" class="member-row" :id="`member-${m.memberId}`">
-              <input class="input tiny nm" v-model="m.memberName" placeholder="成员名" />
-              <select class="select tiny" style="width:130px" v-model="m.valueType">
-                <option v-for="t in CYBER_TYPES" :key="t" :value="t">{{ t }}</option>
-              </select>
-              <label class="chk"><input type="checkbox" v-model="m.static" /> 全局 static</label>
-              <span class="spacer" />
-              <button class="btn tiny danger ic" title="删除成员" @click="removeMember(m.memberId)">✕</button>
-            </div>
-          </div>
-        </section>
+          </section>
 
-        <!-- 枚举卡片 -->
-        <div v-if="ws.enums.length" class="grp enum-grp">枚举类型</div>
-        <section v-for="e in ws.enums" :key="e.enumId" class="card enum" :class="{ collapsed: collapsed.has(e.enumId) }">
-          <header class="card-head">
-            <span class="caret" @click="toggleCollapse(e.enumId)">{{ collapsed.has(e.enumId) ? "▸" : "▾" }}</span>
-            <span class="ico">▦</span>
-            <input class="input tiny inl name-in" v-model="e.name" placeholder="枚举名" />
-            <span class="spacer" />
-            <span class="counts"><b>{{ e.items.length }}</b> 项</span>
-            <button class="btn tiny" @click="addEnumItem(e.enumId)">＋项</button>
-            <button class="btn tiny danger ic" title="删除枚举" @click="removeEnum(e.enumId)">🗑</button>
-          </header>
-          <div v-if="!collapsed.has(e.enumId)" class="card-body">
-            <div class="param-head"><span style="width:160px">运行值 (NativeValue)</span><span>显示名</span></div>
-            <div v-for="(it, idx) in e.items" :key="idx" class="member-row">
-              <input class="input tiny" style="width:160px" v-model="it.runtimeValue" placeholder="Idle" />
-              <input class="input tiny" style="flex:1" v-model="it.displayName" placeholder="待机" />
-              <button class="btn tiny danger ic" @click="removeEnumItem(e.enumId, idx)">✕</button>
+          <!-- 枚举卡片 -->
+          <div v-if="filteredEnums.length" class="grp enum-grp">枚举类型</div>
+          <section v-for="e in filteredEnums" :key="e.enumId" class="card enum" :class="{ collapsed: collapsed.has(e.enumId) }">
+            <header class="card-head">
+              <button class="caret-btn" @click="toggleCollapse(e.enumId)">
+                {{ collapsed.has(e.enumId) ? "▸" : "▾" }}
+              </button>
+              <span class="ico">▦</span>
+              <code class="cls-name-primary">{{ e.name }}</code>
+              <div class="name-input-wrap">
+                <span class="input-lbl">枚举名</span>
+                <input class="input tiny name-in" v-model="e.name" placeholder="枚举名" />
+              </div>
+              <span class="spacer" />
+              <span class="counts nowrap"><b>{{ e.items.length }}</b> 项</span>
+              <button class="btn tiny" @click="addEnumItem(e.enumId)">＋项</button>
+              <button class="btn tiny danger ic" title="删除枚举" @click="removeEnum(e.enumId)">🗑</button>
+            </header>
+            <div v-if="!collapsed.has(e.enumId)" class="card-body">
+              <div class="param-head">
+                <span style="width:180px">运行值 (NativeValue)</span>
+                <span>显示名</span>
+              </div>
+              <div v-for="(it, idx) in e.items" :key="idx" class="member-row">
+                <input class="input tiny" style="width:180px" v-model="it.runtimeValue" placeholder="Idle" />
+                <input class="input tiny" style="flex:1" v-model="it.displayName" placeholder="待机" />
+                <button class="btn tiny danger ic" @click="removeEnumItem(e.enumId, idx)">✕</button>
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
         </div>
       </div>
     </div>
@@ -428,70 +551,144 @@ function collapseAll(v: boolean) {
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: 10px; height: 100%; }
-.page-bar { padding: 8px 12px; gap: 8px; }
-.grid { display: flex; gap: 4px; flex: 1; min-height: 0; }
-.grid > .panel { flex: 1 1 0; min-width: 0; }
+.page { display: flex; flex-direction: column; gap: var(--space-3); height: 100%; min-height: 0; }
+.grid { display: flex; gap: var(--space-2); flex: 1; min-height: 0; min-width: 0; }
+.grid > .panel { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
 .grid > .panel:first-child { flex: 0 0 46%; }
 .grid.single > .panel:first-child { flex: 1 1 0; }
-.panel { padding: 10px; }
-.ptitle { font-size: 11px; color: var(--accent); margin-bottom: 8px; }
+.panel { padding: var(--space-2); }
+.ptitle { font-size: 11px; color: var(--accent); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
 .xml { width: 100%; height: calc(100% - 26px); resize: none; font-size: 11.5px; }
-.empty { padding: 14px; }
-.create-bar { gap: 6px; margin-bottom: 10px; flex-wrap: wrap; align-items: center; }
 
-/* 新增方法/成员行:短暂高亮,配合 scrollIntoView 指引用户找到刚加的行。 */
+/* —— 工具条 —— */
+.toolbar {
+  display: flex; align-items: center; gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-2) var(--space-1);
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: var(--space-2);
+  flex: 0 0 auto;
+}
+.search-wrap {
+  position: relative; flex: 1 1 260px; min-width: 200px;
+  display: flex; align-items: center;
+}
+.search-wrap .s-ico {
+  position: absolute; left: 8px; color: var(--text-tertiary); font-size: 13px; pointer-events: none;
+}
+.search { padding-left: 26px; padding-right: 26px; }
+.search-wrap .s-x {
+  position: absolute; right: 2px;
+  padding: 0 6px; min-height: 22px; font-size: 11px;
+}
+.btn-grp { display: inline-flex; gap: 2px; }
+.btn-grp .btn { border-radius: 0; }
+.btn-grp .btn:first-child { border-top-left-radius: var(--radius-md); border-bottom-left-radius: var(--radius-md); }
+.btn-grp .btn:last-child { border-top-right-radius: var(--radius-md); border-bottom-right-radius: var(--radius-md); }
+
+.typewrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 4px; }
+
+.empty-big {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 60px 20px; gap: 8px; color: var(--text-tertiary);
+}
+.empty-big .empty-ico { font-size: 40px; color: var(--text-disabled); }
+.empty-big .empty-t { color: var(--text-secondary); font-size: 14px; font-weight: 600; }
+.empty-big .empty-hint { font-size: 12px; }
+
+/* 新增行短暂高亮 */
 .just-added { animation: flash-added 1.4s ease-out; }
 @keyframes flash-added {
   0%   { background: var(--accent-soft); box-shadow: 0 0 0 2px var(--accent-border) inset; }
   100% { background: transparent; box-shadow: none; }
 }
-.caret { cursor: pointer; width: 14px; display: inline-block; color: var(--muted); user-select: none; }
-/* .input.tiny/.select.tiny 高度/字号统一由 theme.css 提供(30px/12px)。 */
-.input.tiny.inl { width: 130px; display: inline-block; }
-.chk { font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; }
-.dlg-fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
-.dlg-fld > span { color: var(--muted); }
-.grp { font-size: 10.5px; color: var(--muted-2); text-transform: uppercase; letter-spacing: 0.6px; margin: 14px 2px 6px; }
+
+/* —— caret 按钮:统一样式(替换裸 span 触发误按) —— */
+.caret-btn {
+  background: transparent; border: none; cursor: pointer;
+  color: var(--text-tertiary); font-size: 11px;
+  width: 20px; height: 20px; border-radius: var(--radius-sm);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background 0.12s, color 0.12s;
+  flex: 0 0 auto;
+}
+.caret-btn:hover { background: var(--surface-4); color: var(--text-primary); }
+.caret-btn.small { width: 18px; height: 18px; font-size: 10px; }
 
 /* —— 类型卡片 —— */
 .card {
-  border: 1px solid var(--line-soft);
-  border-radius: 10px;
-  margin-bottom: 12px;
-  background: rgba(20, 28, 40, 0.4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-3);
+  background: var(--surface-2);
   overflow: hidden;
+  transition: border-color 0.12s;
 }
 .card.cls { border-left: 3px solid var(--accent); }
-.card.enum { border-left: 3px solid var(--accent-2, #f5b65c); }
-.card.collapsed { background: transparent; }
+.card.enum { border-left: 3px solid var(--warn); }
+.card:hover { border-color: var(--border-strong); }
+.card.cls:hover { border-left-color: var(--accent); }
+.card.collapsed { background: var(--surface-2); }
+
 .card-head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 7px 10px;
-  background: linear-gradient(180deg, rgba(94, 179, 255, 0.10), rgba(94, 179, 255, 0.02));
-  border-bottom: 1px solid var(--line-soft);
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 8px 12px;
+  background: linear-gradient(180deg, var(--surface-3), var(--surface-2));
+  border-bottom: 1px solid var(--border-subtle);
+  min-width: 0;
 }
-.card.enum .card-head { background: linear-gradient(180deg, rgba(245, 182, 92, 0.10), rgba(245, 182, 92, 0.02)); }
 .card.collapsed .card-head { border-bottom: none; }
-.card-head .ico { color: var(--accent); font-size: 13px; }
-.card.enum .card-head .ico { color: var(--accent-2, #f5b65c); }
-.name-in { width: 116px; font-weight: 600; }
-.desc-in { flex: 1 1 auto; min-width: 120px; max-width: 380px; font-style: italic; }
-.cls-name { font-size: 11px; color: var(--muted); background: rgba(122, 156, 193, 0.12); padding: 1px 6px; border-radius: 5px; }
-.src-tag { font-size: 9.5px; padding: 1px 6px; border-radius: 999px; }
-.src-tag.user { background: rgba(71, 214, 164, 0.16); color: var(--ok, #47d6a4); }
-.src-tag.model { background: rgba(94, 179, 255, 0.16); color: var(--accent); }
-.base { font-size: 10.5px; }
-.counts { font-size: 10.5px; color: var(--muted-2); }
-.counts b { color: var(--text, #dfe9f5); }
+.card-head .ico { color: var(--accent); font-size: 13px; flex: 0 0 auto; }
+.card.enum .card-head .ico { color: var(--warn); }
+
+/* className:主 ID(等宽,不可编辑);当"类身份"看待 */
+.cls-name-primary {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--text-primary);
+  background: var(--surface-1);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  font-weight: 600;
+  flex: 0 0 auto;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 显示名输入:带轻标签,让用户一眼看出"这里是中文改名的地方" */
+.name-input-wrap {
+  display: inline-flex; align-items: center; gap: 4px;
+  flex: 0 0 auto;
+}
+.input-lbl {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex: 0 0 auto;
+}
+.name-in { width: 140px; font-weight: 500; }
+
+/* 类描述:副行,全宽,斜体 —— 与 displayName 拉开视觉距离 */
+.card-subhead {
+  display: flex; align-items: center; gap: var(--space-2);
+  padding: 6px 12px;
+  background: var(--surface-1);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.desc-in { flex: 1 1 auto; font-style: italic; font-size: 11.5px; }
+
+.counts { font-size: 11px; color: var(--text-tertiary); flex: 0 0 auto; }
+.counts b { color: var(--text-primary); font-weight: 600; }
 .btn.tiny.ic { padding: 2px 6px; }
-.card-body { padding: 8px 12px 10px; }
+.card-body { padding: 10px 12px 12px; }
 
 .sub-head {
   display: flex; align-items: center; gap: 6px;
-  font-size: 10.5px; color: var(--muted-2);
+  font-size: 10.5px; color: var(--text-tertiary);
   text-transform: uppercase; letter-spacing: 0.5px;
   margin: 10px 0 6px;
 }
@@ -499,30 +696,62 @@ function collapseAll(v: boolean) {
 .sub-head .sh-hint { text-transform: none; letter-spacing: 0; margin-left: 4px; opacity: 0.8; }
 .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
 .dot.m { background: var(--accent); }
-.dot.v { background: var(--accent-2, #f5b65c); }
+.dot.v { background: var(--warn); }
 .sub-empty { padding: 4px 0 6px; font-size: 11px; }
 
+/* —— 方法卡 —— */
 .method {
-  border: 1px solid var(--line-soft);
-  border-radius: 8px;
-  padding: 7px 8px;
-  margin-bottom: 7px;
-  background: rgba(255, 255, 255, 0.012);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  background: var(--surface-3);
+  transition: background 0.12s;
 }
-.m-top { display: flex; align-items: center; gap: 7px; }
-.m-top .nm { width: 150px; }
-.cat-badge { font-size: 9.5px; padding: 1px 7px; border-radius: 999px; white-space: nowrap; }
-.cat-badge.action { background: rgba(94, 179, 255, 0.18); color: var(--accent); }
-.cat-badge.condition { background: rgba(245, 182, 92, 0.18); color: var(--accent-2, #f5b65c); }
-.cat-badge.condition_transform { background: rgba(180, 142, 255, 0.18); color: #c0a6ff; }
-.ret-badge { font-size: 9.5px; padding: 1px 6px; border-radius: 5px; background: rgba(71, 214, 164, 0.14); color: var(--ok, #47d6a4); white-space: nowrap; }
-.input.tiny.desc { width: 100%; margin: 6px 0 4px; opacity: 0.9; }
-.param-head { display: flex; gap: 6px; font-size: 9.5px; color: var(--muted-2); margin: 4px 0 2px 2px; }
-.param-row { display: flex; gap: 6px; align-items: center; margin: 3px 0 0; }
-.dir-out { color: var(--accent-2, #f5b65c); }
-.dir-in { color: var(--muted); }
+.method:hover { background: var(--surface-4); }
+.method.m-collapsed { padding-bottom: 6px; }
 
-.member-row { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 3px 0; }
-.member-row .nm { width: 150px; }
+.m-top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.m-name-primary {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--text-primary);
+  background: var(--surface-1);
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  flex: 0 0 auto;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.m-nm { width: 120px; display: none; } /* 方法名的可编辑输入用 code+双击进入模式;这里默认隐藏保持整齐 */
+.m-disp { width: 130px; }
+.m-cat { width: 92px; }
+.param-cnt { font-size: 10.5px; }
+
+.m-body {
+  padding: 6px 0 2px;
+  border-top: 1px dashed var(--border-subtle);
+  margin-top: 6px;
+}
+.input.tiny.desc { width: 100%; margin: 0 0 6px; opacity: 0.9; font-style: italic; font-size: 11.5px; }
+
+.param-head { display: flex; gap: 6px; font-size: 9.5px; color: var(--text-tertiary); margin: 4px 0 2px 22px; text-transform: uppercase; letter-spacing: 0.4px; }
+.param-row { display: flex; gap: 6px; align-items: center; margin: 3px 0 0 22px; }
+.dir-out { color: var(--warn); }
+.dir-in { color: var(--text-secondary); }
+
+.member-row { display: flex; gap: 8px; align-items: center; font-size: 12px; padding: 4px 0; }
+.mem-nm { width: 160px; }
+.chk { font-size: 11px; display: inline-flex; align-items: center; gap: 3px; white-space: nowrap; color: var(--text-secondary); }
+
+.dlg-fld { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.dlg-fld > span { color: var(--text-secondary); }
+.grp { font-size: 10.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.6px; margin: 14px 2px 6px; }
 .enum-grp { margin-top: 18px; }
+.spacer { flex: 1; }
+.nowrap { white-space: nowrap; }
+.muted-3 { color: var(--text-tertiary); font-size: 11px; }
 </style>

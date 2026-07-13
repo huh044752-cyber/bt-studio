@@ -12,6 +12,7 @@ import { useConsoleStore } from "@/stores/console";
 import { useScenarioAttachStore, type ScenarioRef } from "@/stores/scenarioAttach";
 import ActionButton from "@/components/common/ActionButton.vue";
 import PageBar from "@/components/common/PageBar.vue";
+import ModalDialog from "@/components/common/ModalDialog.vue";
 import Splitter from "@/components/common/Splitter.vue";
 import { scanScenarios, readPathText, writeScenarioFile, readTextFile, writeArtifact } from "@/services/tauri";
 import {
@@ -543,40 +544,9 @@ function validationForTree(treeId: string) {
             <span class="tag warn">待确认</span>
           </summary>
           <div class="fold-b">
-            <div class="diff-hd row">
-              <span class="muted-2">baseline(.sdata) → 覆盖后(勾选)</span>
-              <span class="spacer" />
-              <button class="btn tiny" @click="cancelAttach">取消</button>
-              <button class="btn tiny primary" @click="confirmAttach">确认覆盖</button>
-            </div>
-            <div class="diff-body">
-              <div v-if="pendingDiff.length === 0" class="muted-2 empty">没有变化 —— 勾选和 baseline 一致</div>
-              <table v-else class="diff-tbl">
-                <thead>
-                  <tr>
-                    <th style="width:22%">实体</th>
-                    <th style="width:39%">BT 变化</th>
-                    <th style="width:39%">FSM 变化</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr v-for="row in pendingDiff" :key="row.unitName" :class="{ nc: !row.changed }">
-                    <td class="u-name">{{ row.unitName }}<span v-if="!row.changed" class="mini-tag">未变</span></td>
-                    <td class="d-cell">
-                      <span v-for="n in row.bt.add"    :key="'a'+n" class="d-chip add">+ {{ n }}</span>
-                      <span v-for="n in row.bt.remove" :key="'r'+n" class="d-chip rm">− {{ n }}</span>
-                      <span v-for="n in row.bt.keep"   :key="'k'+n" class="d-chip keep">= {{ n }}</span>
-                      <span v-if="!row.bt.add.length && !row.bt.remove.length && !row.bt.keep.length" class="muted-2 mini">—</span>
-                    </td>
-                    <td class="d-cell">
-                      <span v-for="n in row.fsm.add"    :key="'fa'+n" class="d-chip add">+ {{ n }}</span>
-                      <span v-for="n in row.fsm.remove" :key="'fr'+n" class="d-chip rm">− {{ n }}</span>
-                      <span v-for="n in row.fsm.keep"   :key="'fk'+n" class="d-chip keep">= {{ n }}</span>
-                      <span v-if="!row.fsm.add.length && !row.fsm.remove.length && !row.fsm.keep.length" class="muted-2 mini">—</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <div class="diff-hint muted-2">
+              点击顶部「预览差异并覆盖」后此处展开;为避免长表格挤走「挂接结果」,
+              差异对比同时在中央弹窗里独立打开(内滚 + 明确的 <b>确认/取消</b>)。
             </div>
           </div>
         </details>
@@ -642,6 +612,45 @@ function validationForTree(treeId: string) {
         </details>
       </div>
     </div>
+
+    <!-- 覆盖预览:模态弹窗。内部滚动 + 明确的确认/取消,保证「挂接结果」在右列不会被撑走。 -->
+    <ModalDialog
+      :open="pendingDiff !== null"
+      title="覆盖预览 · 挂接差异"
+      ok-label="确认覆盖"
+      :width="780"
+      @cancel="cancelAttach"
+      @ok="confirmAttach"
+    >
+      <div class="diff-modal-hd muted-2">baseline(.sdata) → 覆盖后(勾选)</div>
+      <div v-if="!pendingDiff || pendingDiff.length === 0" class="muted-2 empty">没有变化 —— 勾选和 baseline 一致</div>
+      <table v-else class="diff-tbl">
+        <thead>
+          <tr>
+            <th style="width:22%">实体</th>
+            <th style="width:39%">BT 变化</th>
+            <th style="width:39%">FSM 变化</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="row in pendingDiff" :key="row.unitName" :class="{ nc: !row.changed }">
+            <td class="u-name">{{ row.unitName }}<span v-if="!row.changed" class="mini-tag">未变</span></td>
+            <td class="d-cell">
+              <span v-for="n in row.bt.add"    :key="'a'+n" class="d-chip add">+ {{ n }}</span>
+              <span v-for="n in row.bt.remove" :key="'r'+n" class="d-chip rm">− {{ n }}</span>
+              <span v-for="n in row.bt.keep"   :key="'k'+n" class="d-chip keep">= {{ n }}</span>
+              <span v-if="!row.bt.add.length && !row.bt.remove.length && !row.bt.keep.length" class="muted-2 mini">—</span>
+            </td>
+            <td class="d-cell">
+              <span v-for="n in row.fsm.add"    :key="'fa'+n" class="d-chip add">+ {{ n }}</span>
+              <span v-for="n in row.fsm.remove" :key="'fr'+n" class="d-chip rm">− {{ n }}</span>
+              <span v-for="n in row.fsm.keep"   :key="'fk'+n" class="d-chip keep">= {{ n }}</span>
+              <span v-if="!row.fsm.add.length && !row.fsm.remove.length && !row.fsm.keep.length" class="muted-2 mini">—</span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </ModalDialog>
   </div>
 </template>
 
@@ -853,6 +862,29 @@ function validationForTree(treeId: string) {
 
 /* 覆盖式挂接:工具栏文案标签 */
 .policy-hint { font-size: 11.5px; color: var(--text-secondary); padding: 3px 8px; border-radius: 10px; background: var(--surface-3); }
+
+/* --- 右列(货架 + 覆盖预览提示 + 挂接结果):关键是外层 panel 承担纵向滚动,
+ *    内部各 fold 展开时正常撑高,滚不动就出滚动条 —— 不再让"结果"被顶到视口外看不见。 */
+.grid > .panel:not(.c1):not(.assembly) {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  overflow-y: auto;
+  min-height: 0;
+}
+.diff-hint {
+  font-size: 12px;
+  line-height: 1.55;
+  padding: 4px 2px 2px;
+}
+
+/* --- 覆盖预览模态:内容延用原样式,加个小顶提示 --- */
+.diff-modal-hd {
+  padding: 2px 0 8px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 8px;
+}
 
 /* 差异覆盖预览 */
 .diff-hd { padding: 4px 0 8px; }

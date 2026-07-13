@@ -106,10 +106,16 @@ export function toBehaviorTreeDef(tree: DesignTree, opts: ToDefOptions = {}): Be
 
   const root = convert(behaviorRootId);
 
-  // 3. 黑板转换
+  // 3. 从所有叶子 className 聚合出 cognition —— 单类树取叶子共同的 className。
+  //    真引擎 EmployCog(cognition_name) 需要 <Root cognition="…"> 才能找到 Cognition 类;
+  //    树里叶子必须同一 className,否则挂载语义歧义。多类混用时取第一个非空作为 cognition,
+  //    并让 export 校验器另行处理"不一致 warning"(见 ValidationEngine 后续扩展)。
+  const cognition = pickTreeCognition(tree);
+
+  // 4. 黑板转换
   const blackboards = (opts.blackboards ?? []).map(toBlackboardDef);
 
-  // 4. 引用子树
+  // 5. 引用子树
   const referencedBehaviorTreesById: Record<string, string> = {};
   tree.referencedTreeIds.forEach((id, idx) => {
     referencedBehaviorTreesById[String(idx)] = id;
@@ -121,11 +127,32 @@ export function toBehaviorTreeDef(tree: DesignTree, opts: ToDefOptions = {}): Be
     projectType: FOSIM_PROJECT_TYPE,
     behaviorTreeTemplateId: tree.templateId ?? "",
     modelId: tree.modelId ?? "",
+    cognition,
     blackboards,
     root,
     nodesById,
     referencedBehaviorTreesById,
   };
+}
+
+/**
+ * 从设计树里聚合 cognition:遍历所有 Action/Condition 等叶子的 targetSelector.modelClass。
+ * 取"出现次数最多"的那一个作为该树 cognition —— 允许有个别不同类的叶子(常见于混用),
+ * 但引擎侧只用一个 cognition 到 EmployCog,主导者用众数。
+ */
+function pickTreeCognition(tree: DesignTree): string {
+  const counts = new Map<string, number>();
+  for (const node of Object.values(tree.nodes)) {
+    const cls = node.targetSelector?.modelClass?.trim();
+    if (!cls) continue;
+    counts.set(cls, (counts.get(cls) ?? 0) + 1);
+  }
+  let best = "";
+  let bestN = 0;
+  for (const [k, n] of counts) {
+    if (n > bestN) { bestN = n; best = k; }
+  }
+  return best;
 }
 
 function toInputBinding(d: import("../types/editor.js").InputBindingDraft): InputBinding {

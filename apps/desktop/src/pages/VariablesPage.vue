@@ -3,6 +3,7 @@ import { ref, computed } from "vue";
 import { useWorkspaceStore } from "@/stores/workspace";
 import { useConsoleStore } from "@/stores/console";
 import PageBar from "@/components/common/PageBar.vue";
+import Card from "@/components/common/Card.vue";
 import Tag from "@/components/common/Tag.vue";
 import {
   createBlackboard,
@@ -38,6 +39,11 @@ const current = computed(
     blackboards.value.find((b) => b.blackboardId === selectedBb.value) ??
     localBoards.value.find((x) => x.board.blackboardId === selectedBb.value)?.board,
 );
+/** 归属信息(仅本地板):找到对应的树名。 */
+const currentOwnerTree = computed(() => {
+  if (!current.value || current.value.scope === "global") return "";
+  return localBoards.value.find((x) => x.board.blackboardId === current.value?.blackboardId)?.tree.displayName ?? "";
+});
 /** 某全局黑板被哪些行为树链接(显示链接关系)。 */
 function linkedTreesOf(bbId: string): string[] {
   void ws.rev;
@@ -57,7 +63,6 @@ function cyberLabel(dt: DisplayType): string {
  * 新变量的默认值按 displayType 兜底,对齐老引擎 .bt 里 <Variable value="..."> 的类型习惯:
  *  bool → "false"、int/unitId/entityId → "0"、float → "0.000000"、
  *  coord/position/vector → "0.000000,0.000000"、string/name → ""、enum → 该枚举首项(或 "")。
- * 让"新建变量"零手动、零填空、零 malType 校验红。
  */
 function defaultForDisplayType(dt: DisplayType, enumRef?: string): string {
   if (enumRef) {
@@ -101,6 +106,15 @@ function addVar() {
   ws.bump();
 }
 
+function removeVar(varId: string) {
+  if (!current.value) return;
+  const idx = current.value.variables.findIndex((v) => v.variableId === varId);
+  if (idx >= 0) {
+    current.value.variables.splice(idx, 1);
+    ws.bump();
+  }
+}
+
 function onTypeChange(varId: string, raw: string) {
   const v = current.value?.variables.find((x) => x.variableId === varId);
   if (!v) return;
@@ -120,16 +134,11 @@ function onTypeChange(varId: string, raw: string) {
     v.enumRef = undefined;
     v.malType = resolveMalType(dt);
   }
-  // 切类型后原默认值多半失效(如 int="5" 切 bool);为空 / 校验挂 → 用新类型的默认填回。
   const stillOk = prev !== undefined && prev !== "" &&
     validateMalValueConversion(prev, v.malType as never).ok;
   if (!stillOk) v.defaultValue = defaultForDisplayType(dt, enumRef);
 }
 
-/**
- * 校验:优先用变量自带 malType;缺失(如从早期 workspace.xml 导入的变量没写 malType)
- * 就按 displayType 兜底推断,避免 UI 侧无谓爆红。变量真正落盘前会被 sanitize 补齐。
- */
 function checkValue(value: string | undefined, v: { malType?: string; displayType: DisplayType; enumRef?: string }): string {
   const effectiveMal = v.malType ?? (v.enumRef ? "CYBER_MARGTYPE_NAME" : resolveMalType(v.displayType));
   if (!effectiveMal || effectiveMal === "CYBER_MARGTYPE_INVALID") return "类型未解析";
@@ -153,8 +162,8 @@ function toggleLink(bbId: string) {
   <div class="page">
     <PageBar title="黑板中心" :subtitle="`${blackboards.length} 全局 · ${localBoards.length} 本地`" dot="brand" help-title="黑板中心 · 使用帮助">
       <template #actions>
-        <input v-model="newBbName" class="input narrow" placeholder="新建全局黑板名…" />
-        <button class="btn tiny primary" @click="createGlobal">新建全局黑板</button>
+        <input v-model="newBbName" class="input tiny narrow" placeholder="新建全局黑板名…" @keydown.enter="createGlobal" />
+        <button class="btn tiny primary" @click="createGlobal">＋ 新建全局黑板</button>
       </template>
       <template #help>
         <section class="help-sec">
@@ -178,110 +187,319 @@ function toggleLink(bbId: string) {
         </section>
       </template>
     </PageBar>
-    <div class="grid">
-      <div class="panel list scroll">
-        <div class="grp">全局黑板(跨树共享)</div>
-        <div
-          v-for="b in blackboards"
-          :key="b.blackboardId"
-          class="bb-item"
-          :class="{ active: b.blackboardId === selectedBb }"
-          @click="selectedBb = b.blackboardId"
-        >
-          <div class="bb-row">
-            <Tag variant="accent" size="xs">全局</Tag>
-            <span class="nm">{{ b.name }}</span>
-            <span class="muted-2">{{ b.variables.length }} 变量</span>
-            <button
-              class="btn tiny"
-              :class="{ primary: linkedToCurrentTree.includes(b.blackboardId) }"
-              :disabled="!ws.currentTree"
-              :title="ws.currentTree ? '链接/解除到当前树' : '先在设计页选一棵树'"
-              @click.stop="toggleLink(b.blackboardId)"
-            >
-              {{ linkedToCurrentTree.includes(b.blackboardId) ? "已链接当前树" : "链接当前树" }}
-            </button>
-          </div>
-          <div class="links">
-            <span class="muted-2">被链接:</span>
-            <template v-if="linkedTreesOf(b.blackboardId).length">
-              <Tag v-for="(tn, i) in linkedTreesOf(b.blackboardId)" :key="i" variant="neutral" size="xs">{{ tn }}</Tag>
-            </template>
-            <span v-else class="muted-2">(无)</span>
-          </div>
-        </div>
-        <div v-if="blackboards.length === 0" class="muted-2 empty">暂无全局黑板,上方新建。</div>
 
-        <div class="grp">本地黑板(单树私有)</div>
-        <div
-          v-for="x in localBoards"
-          :key="x.board.blackboardId"
-          class="bb-item"
-          :class="{ active: x.board.blackboardId === selectedBb }"
-          @click="selectedBb = x.board.blackboardId"
-        >
-          <div class="bb-row">
-            <Tag variant="neutral" size="xs">本地</Tag>
-            <span class="nm">{{ x.board.name }}</span>
-            <span class="muted-2">{{ x.board.variables.length }} 变量</span>
-            <Tag variant="accent-2" size="xs">归属:{{ x.tree.displayName }}</Tag>
+    <div class="grid">
+      <!-- 左列:黑板列表 -->
+      <div class="col left">
+        <Card :title="`全局黑板`" :subtitle="`${blackboards.length} 块 · 跨树共享`" scroll-body class="col-card">
+          <div v-if="blackboards.length === 0" class="empty">
+            <div class="empty-ico">◇</div>
+            <div class="empty-t">暂无全局黑板</div>
+            <div class="empty-hint">顶部输入名称后点「新建全局黑板」</div>
           </div>
-        </div>
-        <div v-if="localBoards.length === 0" class="muted-2 empty">暂无树/本地黑板。</div>
-      </div>
-      <div class="panel detail scroll">
-        <div v-if="!current" class="muted-2 empty">选择左侧黑板(全局/本地)查看与编辑变量</div>
-        <div v-else>
-          <div class="row">
-            <Tag :variant="current.scope === 'global' ? 'accent' : 'neutral'" size="sm">{{ current.scope === "global" ? "全局" : "本地" }}</Tag>
-            <strong>{{ current.name }}</strong><span class="spacer" /><button class="btn tiny" @click="addVar">新建变量</button>
+          <div v-else class="bb-list">
+            <div
+              v-for="b in blackboards"
+              :key="b.blackboardId"
+              class="bb-item"
+              :class="{ active: b.blackboardId === selectedBb }"
+              @click="selectedBb = b.blackboardId"
+            >
+              <div class="bb-head">
+                <Tag variant="accent" size="xs">全局</Tag>
+                <span class="bb-name ellipsis">{{ b.name }}</span>
+                <span class="bb-count nowrap">{{ b.variables.length }} 变量</span>
+              </div>
+              <div class="bb-meta">
+                <span class="meta-lbl">被链接:</span>
+                <template v-if="linkedTreesOf(b.blackboardId).length">
+                  <Tag v-for="(tn, i) in linkedTreesOf(b.blackboardId)" :key="i" variant="neutral" size="xs">{{ tn }}</Tag>
+                </template>
+                <span v-else class="muted-3">(无)</span>
+              </div>
+              <div class="bb-actions">
+                <button
+                  class="btn tiny"
+                  :class="{ primary: linkedToCurrentTree.includes(b.blackboardId) }"
+                  :disabled="!ws.currentTree"
+                  :title="ws.currentTree ? '链接/解除到当前树' : '先在设计页选一棵树'"
+                  @click.stop="toggleLink(b.blackboardId)"
+                >
+                  {{ linkedToCurrentTree.includes(b.blackboardId) ? "✓ 已链接当前树" : "＋ 链接到当前树" }}
+                </button>
+              </div>
+            </div>
           </div>
-          <table class="tbl">
-            <thead>
-              <tr><th>变量名</th><th>类型 (Cyber)</th><th>malType</th><th>默认值</th><th>校验</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="v in current.variables" :key="v.variableId">
-                <td><input class="input tiny" v-model="v.name" /></td>
-                <td>
-                  <select class="select tiny" :value="v.enumRef ? 'enum:' + v.enumRef : v.displayType" @change="onTypeChange(v.variableId, ($event.target as HTMLSelectElement).value)">
-                    <optgroup label="基础类型 (Cyber)">
-                      <option v-for="dt in displayTypes" :key="dt" :value="dt">{{ cyberLabel(dt) }}</option>
-                    </optgroup>
-                    <optgroup v-if="ws.enums.length" label="枚举(来自类型空间)">
-                      <option v-for="e in ws.enums" :key="e.enumId" :value="'enum:' + e.name">enum:{{ e.name }}</option>
-                    </optgroup>
-                  </select>
-                </td>
-                <td><span class="mal-cell mono">{{ v.malType || resolveMalType(v.displayType) }}</span></td>
-                <td><input class="input tiny" v-model="v.defaultValue" /></td>
-                <td :class="checkValue(v.defaultValue, v) === '✓' ? 'ok' : 'err'">{{ checkValue(v.defaultValue, v) }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+        </Card>
+
+        <Card :title="`本地黑板`" :subtitle="`${localBoards.length} 块 · 单树私有`" scroll-body class="col-card">
+          <div v-if="localBoards.length === 0" class="empty">
+            <div class="empty-ico">◈</div>
+            <div class="empty-t">暂无树/本地黑板</div>
+            <div class="empty-hint">新建行为树后自动生成本地板</div>
+          </div>
+          <div v-else class="bb-list">
+            <div
+              v-for="x in localBoards"
+              :key="x.board.blackboardId"
+              class="bb-item"
+              :class="{ active: x.board.blackboardId === selectedBb }"
+              @click="selectedBb = x.board.blackboardId"
+            >
+              <div class="bb-head">
+                <Tag variant="neutral" size="xs">本地</Tag>
+                <span class="bb-name ellipsis">{{ x.board.name }}</span>
+                <span class="bb-count nowrap">{{ x.board.variables.length }} 变量</span>
+              </div>
+              <div class="bb-meta">
+                <span class="meta-lbl">归属:</span>
+                <Tag variant="accent-2" size="xs">{{ x.tree.displayName }}</Tag>
+              </div>
+            </div>
+          </div>
+        </Card>
       </div>
+
+      <!-- 右列:变量表 -->
+      <Card
+        :title="current ? current.name : '变量表'"
+        :subtitle="current ? (current.scope === 'global' ? '全局黑板' : `本地黑板 · 归属 ${currentOwnerTree}`) : '选择左侧黑板开始编辑'"
+        scroll-body
+        class="detail-card"
+      >
+        <template v-if="current" #actions>
+          <Tag :variant="current.scope === 'global' ? 'accent' : 'neutral'" size="sm">
+            {{ current.scope === "global" ? "全局" : "本地" }}
+          </Tag>
+          <span class="muted-3 nowrap">{{ current.variables.length }} 变量</span>
+          <button class="btn tiny primary" @click="addVar">＋ 新建变量</button>
+        </template>
+
+        <div v-if="!current" class="empty">
+          <div class="empty-ico">▨</div>
+          <div class="empty-t">未选中任何黑板</div>
+          <div class="empty-hint">从左侧列表点选一个全局或本地黑板</div>
+        </div>
+
+        <div v-else-if="current.variables.length === 0" class="empty">
+          <div class="empty-ico">＋</div>
+          <div class="empty-t">该黑板暂无变量</div>
+          <div class="empty-hint">点击右上「新建变量」增加</div>
+        </div>
+
+        <table v-else class="var-tbl">
+          <thead>
+            <tr>
+              <th class="col-name">变量名</th>
+              <th class="col-type">类型 (Cyber)</th>
+              <th class="col-mal">malType</th>
+              <th class="col-val">默认值</th>
+              <th class="col-chk">校验</th>
+              <th class="col-op"></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="v in current.variables" :key="v.variableId">
+              <td><input class="input tiny" v-model="v.name" /></td>
+              <td>
+                <select class="select tiny" :value="v.enumRef ? 'enum:' + v.enumRef : v.displayType" @change="onTypeChange(v.variableId, ($event.target as HTMLSelectElement).value)">
+                  <optgroup label="基础类型 (Cyber)">
+                    <option v-for="dt in displayTypes" :key="dt" :value="dt">{{ cyberLabel(dt) }}</option>
+                  </optgroup>
+                  <optgroup v-if="ws.enums.length" label="枚举(来自类型空间)">
+                    <option v-for="e in ws.enums" :key="e.enumId" :value="'enum:' + e.name">enum:{{ e.name }}</option>
+                  </optgroup>
+                </select>
+              </td>
+              <td><span class="mono mal-cell">{{ v.malType || resolveMalType(v.displayType) }}</span></td>
+              <td><input class="input tiny" v-model="v.defaultValue" /></td>
+              <td>
+                <Tag :variant="checkValue(v.defaultValue, v) === '✓' ? 'ok' : 'err'" size="xs">
+                  {{ checkValue(v.defaultValue, v) }}
+                </Tag>
+              </td>
+              <td>
+                <button class="btn tiny danger" @click="removeVar(v.variableId)" title="删除变量">✕</button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </Card>
     </div>
   </div>
 </template>
 
 <style scoped>
-.page { display: flex; flex-direction: column; gap: var(--space-3); height: 100%; }
-.narrow { width: 200px; }
-.grid { display: grid; grid-template-columns: 300px 1fr; gap: var(--space-3); flex: 1; min-height: 0; }
-.list, .detail { padding: var(--space-2); }
-.grp { font-size: 10.5px; color: var(--text-tertiary); text-transform: uppercase; letter-spacing: 0.5px; margin: var(--space-2) var(--space-1) var(--space-1); }
-.bb-item { display: flex; flex-direction: column; gap: var(--space-1); padding: var(--space-1) var(--space-2); border-radius: var(--radius-md); cursor: pointer; border: 1px solid transparent; }
-.bb-item:hover { background: var(--surface-3); }
-.bb-item.active { background: var(--accent-soft); border-color: var(--accent-border); }
-.bb-row { display: flex; align-items: center; gap: var(--space-2); }
-.links { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; font-size: 11px; padding-left: 2px; }
-.nm { flex: 1; font-weight: 600; }
-.empty { padding: var(--space-4); }
-.tbl { width: 100%; border-collapse: collapse; margin-top: var(--space-2); }
-.tbl th { text-align: left; font-size: 10.5px; color: var(--text-tertiary); padding: 4px 6px; }
-.tbl td { padding: 3px 6px; border-bottom: 1px solid var(--border-subtle); }
-.mal-cell { font-size: 10.5px; color: var(--text-tertiary); }
-.ok { color: var(--ok); }
-.err { color: var(--err); }
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  min-height: 0;
+}
+.narrow { width: 220px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
+}
+
+/* 左列 —— 两个 Card(全局 / 本地)平分高度,各自独立滚动 */
+.col.left {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  min-width: 0;
+}
+.col-card {
+  flex: 1 1 0;
+  min-height: 0;
+}
+.detail-card {
+  min-height: 0;
+}
+
+/* 黑板列表条 —— 每条为独立卡片,内容 nowrap + 省略号,决不竖排 */
+.bb-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.bb-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-3);
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+  min-width: 0;
+}
+.bb-item:hover {
+  background: var(--surface-4);
+  border-color: var(--border-strong);
+}
+.bb-item.active {
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 1px var(--accent-border);
+}
+
+.bb-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.bb-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+.bb-count {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.bb-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  min-width: 0;
+}
+.meta-lbl {
+  color: var(--text-tertiary);
+  flex: 0 0 auto;
+}
+
+.bb-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+/* Empty 状态 */
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-5) var(--space-3);
+  gap: 6px;
+  color: var(--text-tertiary);
+}
+.empty-ico {
+  font-size: 28px;
+  color: var(--text-disabled);
+}
+.empty-t {
+  color: var(--text-secondary);
+  font-weight: 600;
+}
+.empty-hint {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+}
+
+/* 变量表 —— 表头 sticky,列宽克制 */
+.var-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+.var-tbl th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--surface-2);
+  text-align: left;
+  padding: 8px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.var-tbl td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+.var-tbl tr:hover td {
+  background: var(--surface-3);
+}
+.col-name { width: 22%; }
+.col-type { width: 22%; }
+.col-mal { width: 22%; }
+.col-val { width: 20%; }
+.col-chk { width: 10%; }
+.col-op { width: 44px; }
+
+.mal-cell {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 2px 6px;
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+}
+
+.ellipsis {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.nowrap { white-space: nowrap; }
+.muted-3 { color: var(--text-tertiary); font-size: 11px; }
 </style>

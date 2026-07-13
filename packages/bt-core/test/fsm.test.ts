@@ -119,7 +119,9 @@ describe("状态机(FSM)节点与导出", () => {
       expect(t.targetSelector?.modelClass).toBe("BT空地打击");
     }
     expect(out).toContain('className="BT空地打击"');
-    expect(out).not.toContain('cognition=');
+    // 2026-07:Root 需带 cognition,让引擎 Agent EmployCog 找 Cognition 类。
+    // FSM 序列化时按叶子 className 众数聚合 —— 单类 FSM 恒定为该类。
+    expect(out).toContain('cognition="BT空地打击"');
     expect(out).not.toContain('componentId=');
   });
 });

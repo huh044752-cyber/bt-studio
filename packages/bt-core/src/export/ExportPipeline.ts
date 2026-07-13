@@ -47,13 +47,16 @@ export class ExportPipeline {
     this.validation = new ValidationEngine(registry);
   }
 
-  /** 预检:返回校验问题(不导出)。 */
+  /** 预检:返回校验问题(不导出)。
+   * **phase=export**:导出闸门必须严格,把 editing 阶段降级的 soft 规则(孤儿/未绑函数/必填未填等)
+   * 全部升回 error,保证生成的 XML 一定完整可跑。 */
   precheck(input: ExportInput): Issue[] {
     return this.validation.validate(input.doc.tree, {
       mode: input.doc.tree.mode,
       blackboards: input.blackboards,
       catalogs: input.catalogs,
       registry: input.registry ?? this.registry,
+      phase: "export",
     });
   }
 

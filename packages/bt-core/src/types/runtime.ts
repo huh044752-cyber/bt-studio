@@ -146,6 +146,15 @@ export interface BehaviorTreeDef {
   projectType: string;
   behaviorTreeTemplateId: string;
   modelId: string;
+  /**
+   * 该 BT 使用的认知类名(用于 <Root cognition="…"> 属性)。
+   * 引擎:bt_xml_loader.cpp 从 Root 读该属性 → tree_def_->cognition;
+   * BehaviorNodeAgent.LoadByNode 里赋给 agent->cognition_name,
+   * 后续 EmployCog 用它到 unit->GetCognitionByName(name) 或全局 component_mgr
+   * 里找 Cognition 类(FZFOSimModel 里已注册的 dll)。
+   * 单类树(所有叶子同一 className)——由 toBehaviorTreeDef 从叶子聚合得到。
+   */
+  cognition: string;
   /** bt_tree_def.h::BlackboardStore — 这里以 BlackboardDef 列表表达 */
   blackboards: BlackboardDef[];
   root: BTNodeDef | null;

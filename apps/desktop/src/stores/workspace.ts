@@ -205,28 +205,28 @@ export const useWorkspaceStore = defineStore("workspace", () => {
       autoLayout(t);
       formattedTrees.add(treeId);
     }
+    // 切树 → issues 属于旧树,清空;用户在新树想看问题时再点校验。
+    issues.value = [];
     console.info("canvas", `切换到${(t?.projectKind ?? "behavior_tree") === "state_machine" ? "状态机" : "行为树"} ${t?.treeName ?? treeId}`);
     bump();
     return true;
   }
 
   /**
-   * 是否需要在该命令执行后立即触发校验。
-   * 校验时机策略(按用户要求):
-   *  - 拖拽/结构编辑(AddNode/Delete/Connect/Reorder/Move) → 不校验,避免刚拖上来就红字干扰
-   *  - 只有当节点的绑定态(类/函数/输入输出)发生变化时才校验
-   *  - 导出/代码生成前的闸门单独走 exportBlockers()/validateAll()
-   *  - 用户手动触发的"校验"按钮直接调 validate()/validateAll()
+   * 命令执行:**不自动触发校验**。
+   *
+   * 设计原则(2026-07 重构):
+   *   - 单次 run 只做 3 件事:(1) bus.execute (2) 若成功且创建了节点,selectedNodeId 指向新节点
+   *     (3) bump 触发画布 sync。**校验完全由用户手动 `validate()` 或导出闸门 `exportBlockers()` 触发**。
+   *   - 这样避免了粘贴/批量脚本时校验被反复触发,也避免"编辑中红字不断变化"的干扰。
+   *   - undo/redo 会自动 revalidate(回到旧状态,issues 必须与之匹配)。
+   *   - 切树 / 打开工程 会自动 revalidate(新语境必须有正确的 issues)。
+   *
+   * 用户流:
+   *   拖节点 / 粘贴 / 连线 / 改属性 → issues 保持"未校验"态(空数组)。
+   *   用户点顶部"校验"按钮 → validate() 一次算清所有问题。
+   *   用户点"导出" → exportBlockers() 强制以 export phase 算一次,阻断级 error 会同步到画布。
    */
-  function needValidateAfter(cmd: GraphCommand): boolean {
-    if (cmd.kind === "BindFunction" || cmd.kind === "BindVariable") return true;
-    if (cmd.kind === "UpdateNodeProperty") {
-      const p = cmd.patch as Partial<{ functionRef: string; targetSelector: unknown; script: string; scriptRef: string }>;
-      return "functionRef" in p || "targetSelector" in p || "script" in p || "scriptRef" in p;
-    }
-    return false;
-  }
-
   function run(cmd: GraphCommand): CommandResult {
     const bus = currentBus.value;
     if (!bus) return { ok: false, reason: "无当前树", affectedNodeIds: [] };
@@ -237,10 +237,39 @@ export const useWorkspaceStore = defineStore("workspace", () => {
       selectedNodeId.value = res.createdNodeId;
     }
     bump();
-    // 仅在绑定态改变时才校验;其余命令不触发红字提示。用户可手动点击"校验",或导出前的
-    // exportBlockers() 会强制 validateAll()。
-    if (needValidateAfter(cmd)) validate();
     return res;
+  }
+
+  /**
+   * 批量执行命令 —— **一次性,单帧提交**。用于粘贴子树、批量导入等场景。
+   *
+   * 单次 `run` 每条命令都会 `bump()` → 触发 `watch([currentTreeId, ws.rev])` → `editor.sync()`
+   * 全量增量 diff X6 画布。粘贴 N 个节点若走 N 次 run,就会有 N 次 sync,视觉上像"节点在爆"
+   * (中间态一个个冒出来 + selectedNodeId 反复跳),用户体感就是"粘贴出来一堆"。
+   *
+   * runBatch 走同一个 bus 对每条命令逐条执行(bus 内部自己维护 undo 快照),
+   * **只在最后 bump 一次**,画布只 sync 一次,selectedNodeId 只指定最终锚点(顶点)。
+   * 校验依然不自动触发 —— 用户手动点。
+   *
+   * @param cmds 命令列表(顺序执行,前一条的 createdNodeId 可被后续通过 anchor 引用)
+   * @param anchorSelectedNodeId 全部完成后 selectedNodeId 指向谁(通常是顶点)
+   * @returns 每条命令的结果,order 与 cmds 一致
+   */
+  function runBatch(
+    cmds: GraphCommand[],
+    anchorSelectedNodeId?: string,
+  ): CommandResult[] {
+    const bus = currentBus.value;
+    if (!bus) return cmds.map(() => ({ ok: false, reason: "无当前树", affectedNodeIds: [] }));
+    const out: CommandResult[] = [];
+    for (const cmd of cmds) {
+      const res = bus.execute(cmd);
+      if (!res.ok) console.warning("canvas", `批命令 ${cmd.kind} 被拒绝: ${res.reason}`);
+      out.push(res);
+    }
+    if (anchorSelectedNodeId) selectedNodeId.value = anchorSelectedNodeId;
+    bump(); // 只在最后 bump 一次 → 只一次画布 sync
+    return out;
   }
 
   /** undo/redo 后 bus 内部 tree 引用已被替换,需把恢复后的树同步回 trees(否则视图不变)。 */
@@ -257,12 +286,13 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   function undo(): void {
     if (currentBus.value?.undo()) syncBusTree();
     bump();
-    validate();
+    // 不自动重算 issues:已计算过的可能已对不上恢复后的状态,清空 → "校验已过时,请重新点校验"。
+    issues.value = [];
   }
   function redo(): void {
     if (currentBus.value?.redo()) syncBusTree();
     bump();
-    validate();
+    issues.value = [];
   }
 
   function layout(): void {
@@ -282,6 +312,11 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     formattedTrees.add(treeId);
   }
 
+  /**
+   * 编辑态校验:软规则(孤儿、绑定未填、类不存在等)一律 warning。
+   * 硬规则(未注册节点、Root 唯一/子数量、子容量违反、常量转换失败等)仍是 error。
+   * 面板/画布上编辑过程中不会被红字轰炸,但仍能在问题面板看到黄字提示。
+   */
   function validate(): Issue[] {
     const t = currentTree.value;
     if (!t) {
@@ -292,11 +327,12 @@ export const useWorkspaceStore = defineStore("workspace", () => {
       mode: t.mode,
       blackboards: visibleBlackboards(t.treeId),
       catalogs: catalogBundle(),
+      phase: "editing",
     });
     return issues.value;
   }
 
-  /** 校验所有树,汇总问题(每条带 treeName/treeId)。运行/调试与"问题"面板用它做全面错误显示。 */
+  /** 校验所有树(editing phase),汇总问题(每条带 treeName/treeId)。 */
   function validateAll(): (Issue & { treeName: string; treeId: string })[] {
     const out: (Issue & { treeName: string; treeId: string })[] = [];
     for (const t of trees.value) {
@@ -304,6 +340,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
         mode: t.mode,
         blackboards: visibleBlackboards(t.treeId),
         catalogs: catalogBundle(),
+        phase: "editing",
       });
       for (const i of found) out.push({ ...i, treeName: t.displayName, treeId: t.treeId });
     }
@@ -312,15 +349,26 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   }
 
   /**
-   * 导出前置闸:校验全部树,返回阻断级错误(error)。空数组 = 可导出。
-   * 同时把当前树的 issues 刷新,使画布上的错误节点暴红。
+   * 导出前置闸:**用 export phase 校验**,所有软规则升 error,保证导出物完整。
+   * 同时把当前树的 issues 用 export 结果覆盖,让画布上原本 warning 的孤儿/未填此刻暴红,
+   * 用户一眼看到"再补哪几处才能导出"。
    */
   function exportBlockers(): (Issue & { treeName: string; treeId: string })[] {
-    const all = validateAll();
-    // 同步当前树 issues(画布红框 + 属性面板)
+    const out: (Issue & { treeName: string; treeId: string })[] = [];
+    for (const t of trees.value) {
+      const found = validator.validate(t, {
+        mode: t.mode,
+        blackboards: visibleBlackboards(t.treeId),
+        catalogs: catalogBundle(),
+        phase: "export",
+      });
+      for (const i of found) out.push({ ...i, treeName: t.displayName, treeId: t.treeId });
+    }
+    allIssues.value = out;
+    // 同步当前树 issues(画布红框 + 属性面板) —— 用 export 结果,让 soft 规则暴红。
     const t = currentTree.value;
-    if (t) issues.value = all.filter((i) => i.treeId === t.treeId);
-    return all.filter((i) => i.level === "error");
+    if (t) issues.value = out.filter((i) => i.treeId === t.treeId);
+    return out.filter((i) => i.level === "error");
   }
 
   /**
@@ -337,7 +385,12 @@ export const useWorkspaceStore = defineStore("workspace", () => {
   const warningCount = computed(() => issues.value.filter((i) => i.level === "warning").length);
   const allErrorCount = computed(() => allIssues.value.filter((i) => i.level === "error").length);
   const allWarningCount = computed(() => allIssues.value.filter((i) => i.level === "warning").length);
-  const canExport = computed(() => !!currentTree.value && errorCount.value === 0);
+  /**
+   * "可导出"按钮启用状态:仅表示当前有树可导。
+   * 校验不再实时(用户按需),真正阻断在 `exportCurrent` 内部由 pipeline.precheck(phase=export) 兜底。
+   * 这样用户不需要先手动"校验"再"导出" —— 直接点导出,失败时 issues 会被刷新暴红。
+   */
+  const canExport = computed(() => !!currentTree.value);
 
   function exportCurrent() {
     const t = currentTree.value;
@@ -347,6 +400,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
       blackboards: visibleBlackboards(t.treeId),
       catalogs: catalogBundle(),
     });
+    // res.issues 是 export phase 校验的结果;不管成败都把它塞进 issues 让画布/问题面板暴红。
     issues.value = res.issues;
     if (res.ok) console.success("export", `导出成功 ${t.treeName}`, { relatedAssetId: t.treeId });
     else console.error("export", `导出阻断 ${t.treeName}: ${res.error}`, { relatedAssetId: t.treeId });
@@ -560,11 +614,23 @@ export const useWorkspaceStore = defineStore("workspace", () => {
       if (!globalBlackboards.value.find((x) => x.blackboardId === bb.blackboardId)) globalBlackboards.value.push(bb);
     }
     // 行为树 + 状态机(parseWorkspaceXml 已合并为 DesignTree)
+    // 每个 tree 的输入/输出绑定里的 blackboardKey 若落到某个全局黑板 → 自动 link,
+    // 否则 visibleBlackboards() 只看得到本地板,varIndex 里没有 global 变量,
+    // 校验会误报"输入 xxx 绑定的黑板变量缺失"(工作空间 XML 本身不落 linkedGlobalIds)。
+    const globalIds = new Set(res.globalBlackboards.map((b) => b.blackboardId));
     let firstTreeId = "";
     let btCount = 0;
     let fsmCount = 0;
     for (const t of res.behaviorTrees) {
       registerTree(t, createBlackboard(`${t.treeName}-本地板`, "tree", { blackboardId: t.localBlackboardId }));
+      const usedGlobals = new Set<string>();
+      for (const n of Object.values(t.nodes)) {
+        for (const b of n.inputBindings) if (b.blackboardId && globalIds.has(b.blackboardId)) usedGlobals.add(b.blackboardId);
+        for (const b of n.outputBindings) if (b.blackboardId && globalIds.has(b.blackboardId)) usedGlobals.add(b.blackboardId);
+      }
+      for (const gid of usedGlobals) {
+        if (!t.linkedGlobalBlackboardIds.includes(gid)) t.linkedGlobalBlackboardIds.push(gid);
+      }
       if ((t.projectKind ?? "behavior_tree") === "state_machine") fsmCount++;
       else btCount++;
       if (!firstTreeId) firstTreeId = t.treeId;
@@ -753,6 +819,7 @@ export const useWorkspaceStore = defineStore("workspace", () => {
     newTree,
     switchTree,
     run,
+    runBatch,
     undo,
     redo,
     layout,
